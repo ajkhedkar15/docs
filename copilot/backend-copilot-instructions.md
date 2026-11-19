@@ -32,14 +32,14 @@ Paths are prefixed with the screen name, for example `/api/v1/attribute-tagging`
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /aes/search?page&pageSize&sort` | The only list endpoint. Body `SearchRequest` (`scope`, `searchText`, `criteria[]`); `{}` = the caller's own AEs |
-| `GET /filters?scope=MINE\|ALL` | Filter definitions and every option in that scope |
+| `POST /aes/search?page&pageSize&sort` | The only list endpoint. Body `SearchRequest` (`searchText`, `criteria[]`); `{}` = all AEs |
+| `GET /filters` | Filter definitions and every option across all AEs (same for every user) |
 | `GET /aes/{aeId}` | Screen-specific detail of one AE |
 | `PUT/POST/PATCH /aes/{aeId}/...` | Edit actions (owners only) |
 
 Attribute Tagging's edit endpoint is `PUT /attribute-tagging/aes/{aeId}/tags` (replaces Application, Model and Third Party tags; includes `version` for 409 on concurrent edits). Edit forms get their choices from `GET /lookups/{key}` (for example `/lookups/keyApplication`).
 
-Each screen implements a `ScreenDefinition` bean that declares its filters (from the shared `FilterField` catalog), its card mapping, default sort and any extra data it needs. The generic search service, controller logic, paging, scope and `canEdit` come from `common`. **Adding a screen must not mean copying the search code.**
+Each screen implements a `ScreenDefinition` bean that declares its filters (from the shared `FilterField` catalog), its card mapping, default sort and any extra data it needs. The generic search service, controller logic, paging and `canEdit` come from `common`. **Adding a screen must not mean copying the search code.**
 
 ## Who is the caller
 - **Now (temporary, no JWT yet):** the UI has a "Who are you?" screen. The user picks themselves from `GET /users?q=` and the UI sends that id in the **`X-User-Id` header** on every request.
@@ -52,7 +52,7 @@ Each screen implements a `ScreenDefinition` bean that declares its filters (from
 ## Access rules (critical)
 - **Never accept the owner, user id or role as a query parameter or body field**, and never trust one sent that way.
 - Every user can **view** every AE.
-- `scope=MINE` (default) returns AEs where the caller is an owner; `scope=ALL` returns every AE.
+- "My AEs" is not a special mode: it is the **`aeOwner` filter**, which the UI preselects with the logged-in user. `aeOwner` is filtered like any multi-value attribute (`EXISTS` on the ownership table, values = user ids).
 - Only an owner (or admin) can **edit**. Every AE returned carries `canEdit`, computed on the server:
   `canEdit = user.admin() || ae.ownerIds().contains(user.userId())`.
 - Every edit endpoint re-checks ownership and returns **403** if the caller is not an owner. `canEdit` in a response is for the UI only and is never a security check.
@@ -69,15 +69,15 @@ Each screen implements a `ScreenDefinition` bean that declares its filters (from
 - Load a page in **two queries**: (1) the page of AEs, (2) their attributes, owners and counts with `WHERE ae_id IN (:ids)`, then group in Java. Never use `JOIN FETCH` on collections with paging, and never cause N+1 queries.
 - An empty result is **200** with an empty list, not 404.
 - List responses are `{ page, pageSize, totalRecords, totalPages, lastPage, items }` on every screen.
-- Every card has **`filterValues`**: a map from filter key to an array of codes, for **every** filter of the screen except `aeId` and `aeName`, including single-value fields such as `businessArea` (as a one-item array). The UI filters with only `aeId`, `aeName`, `aeDescription` and `filterValues`, so a filter missing from this map silently breaks browser filtering. Add a test that each screen's card contains every filter key.
+- Every card has **`filterValues`**: a map from filter key to an array of codes, for **every** filter of the screen except `aeId` and `aeName`, including single-value fields such as `businessArea` (as a one-item array) and `aeOwner` (the owners' user ids). The UI filters with only `aeId`, `aeName`, `aeDescription` and `filterValues`, so a filter missing from this map silently breaks browser filtering. Add a test that each screen's card contains every filter key.
 - Detail responses carry the same keys as `attributes`, but as `{ value, label }` options.
 - For the `aeId` and `aeName` filters the values are AE ids (names can repeat).
 - Lookups for edit forms are `GET /lookups/{key}` where `key` is the filter key (for example `keyApplication`).
 
 ## Filter options (`/filters`)
-- Options are `DISTINCT` values (with counts) from the AEs in the requested scope, read from the database, never from a partial page.
+- Options are `DISTINCT` values (with counts) across **all** AEs, read from the database, never from a partial page. `aeOwner` options are every user who owns at least one AE (value = user id, label = name).
 - Each option has `value` (a code or id sent back in criteria) and `label` (display text). For AE Name, `value` is the AE id because names repeat.
-- Cache with `@Cacheable`: key `screen + ":ALL"` for `scope=ALL` (shared by all users) and `screen + ":MINE:" + userId` for `scope=MINE`. Evict the relevant entries when an edit changes AE data.
+- The response is the same for every user: cache it once per screen with `@Cacheable(key = "#screen")`. Evict it when an edit changes AE data.
 - Return every option; there is no typeahead (the largest list is about 2,500 AE names).
 
 ## Response conventions
@@ -88,11 +88,11 @@ Each screen implements a `ScreenDefinition` bean that declares its filters (from
 
 ## Persistence
 - Schema changes go through the project's migration tool; never rely on `ddl-auto` outside local development.
-- Index every column used for filtering or scope, for example `(attr_type, attr_value, ae_id)` and `(ae_id)` on the attribute table, and `(user_id, ae_id)` on the ownership table.
+- Index every column used for filtering, for example `(attr_type, attr_value, ae_id)` and `(ae_id)` on the attribute table, and `(user_id, ae_id)` on the ownership table.
 
 ## Tests
 For every screen and every change, cover at least:
-- scope `MINE` vs `ALL`,
+- the `aeOwner` filter (my AEs) vs no filter (all AEs),
 - `canEdit` true/false,
 - an edit by a non-owner returns 403,
 - OR within a filter, AND across filters, INCLUDE vs EXCLUDE,
@@ -108,7 +108,7 @@ For every screen and every change, cover at least:
 
 ## Don't
 - Don't put the owner or user in request parameters or trust them from the client.
-- Don't duplicate search, paging or scope logic inside a screen package.
+- Don't duplicate search or paging logic inside a screen package.
 - Don't use joins for multi-value filters or `JOIN FETCH` with paging.
 - Don't return 404 for an empty list, or 403/404 for viewing an AE the user doesn't own (viewing is allowed).
 - Don't change the API without updating the spec.

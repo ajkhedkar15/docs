@@ -24,8 +24,8 @@ Commit the rebuilt bundle with your change. The **API spec** GitHub Action fails
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/<screen>/aes/search` | List and filter cards, paged (page from 1, pageSize up to 1000). Body `{}` = my AEs |
-| GET | `/<screen>/filters?scope=MINE\|ALL` | Filter dropdowns and options |
+| POST | `/<screen>/aes/search` | List and filter cards, paged (page from 1, pageSize up to 1000). Body `{}` = all AEs |
+| GET | `/<screen>/filters` | Filter dropdowns: every value across all AEs |
 | GET | `/<screen>/aes/{aeId}` | Detail of one AE for that screen |
 | PUT/POST | `/<screen>/aes/{aeId}/...` | Edits (owners only, otherwise 403) |
 
@@ -41,7 +41,7 @@ List responses are always `{ page, pageSize, totalRecords, totalPages, lastPage,
 
 ## View vs edit
 
-- Every user can **view** every AE. Screens open on `scope=MINE`; `scope=ALL` shows every AE.
+- Every user can **view** every AE. Screens open with the **AE Owner** filter preselected with the user (their AEs); removing it shows all AEs. Dropdowns always list every value across all AEs.
 - Only an owner can **edit**. Each AE has `canEdit`, computed by the server; the UI shows the rest read-only.
 - Edit endpoints re-check ownership and return **403** for non-owners.
 

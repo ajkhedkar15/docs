@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan API Spec
-  version: 3.0.0
+  version: 4.0.0
   description: |
     Open API specification for myAuditPlan (mAP).
 
@@ -25,9 +25,11 @@ info:
     - Every AE in a response carries `canEdit`, computed by the server. The UI shows the rest read-only.
     - Edit endpoints re-check ownership and return **403** for non-owners. 404 means the AE does not exist.
 
-    ## scope
-    - `MINE` (default): AEs where the caller is an owner. Used when a screen opens.
-    - `ALL`: every AE.
+    ## My AEs vs all AEs
+    - Filter dropdowns always list every value across ALL AEs, for every user.
+    - "My AEs" is just the **AE Owner** filter. The UI preselects it with the logged-in user,
+      so the screen opens on their AEs. Removing it shows all AEs.
+    - Search with no criteria returns all AEs.
 
     ## Search semantics
     Values inside one criterion are OR'ed; different criteria are AND'ed.
@@ -44,10 +46,11 @@ info:
     `aeId` is always added to the sort as a tiebreaker.
 
     ## Screen flow (same for every screen)
-    1. On open: `GET /<screen>/filters?scope=MINE` and `POST /<screen>/aes/search?page=1` with `{}`.
-    2. Load the remaining pages until `lastPage=true`, then filter in the browser.
-       Until then, send the filters to `POST /<screen>/aes/search`.
-    3. "All AEs": the same calls with scope `ALL`.
+    1. On open: `GET /<screen>/filters` and `POST /<screen>/aes/search?page=1`
+       with `{"criteria":[{"field":"aeOwner","values":["<my id>"]}]}` - the user's AEs, shown at once.
+    2. In the background: `POST /<screen>/aes/search` with `{}`, page by page until `lastPage=true`
+       (about 2,500 AEs, 3 pages). From then on, every filter change is applied in the browser.
+    3. A filter change before the background load finishes is sent to `POST /<screen>/aes/search`.
     4. Click an AE: `GET /<screen>/aes/{aeId}`. Edit only when `canEdit` is true.
   license:
     name: Proprietary
@@ -153,7 +156,6 @@ paths:
               screen: attribute-tagging
               name: UK legal entities
               search:
-                scope: ALL
                 criteria:
                   - field: keyLegalEntity
                     values:
@@ -262,9 +264,10 @@ paths:
         - AttributeTagging
       summary: List, search and filter Attribute Tagging cards
       description: |
-        The only list endpoint. An empty body {} returns the caller's own AEs (scope MINE).
+        The only list endpoint. An empty body {} returns all AEs.
+        The screen opens with criteria aeOwner = [the user's id] (the AE Owner filter preselected).
 
-        Filters on this screen - aeId, aeName, est, risk, keyLegalEntity, keyThirdParty,
+        Filters on this screen - aeId, aeName, aeOwner, est, risk, keyLegalEntity, keyThirdParty,
         keyApplication, businessArea, businessDivision, keyModel, archerRiskUnit, costCenter,
         location, product, auditTeam.
 
@@ -282,12 +285,18 @@ paths:
               $ref: '#/components/schemas/SearchRequest'
             examples:
               myAes:
-                summary: Screen opens - my AEs
+                summary: Screen opens - AE Owner preselected with the user
+                value:
+                  criteria:
+                    - field: aeOwner
+                      values:
+                        - '12345'
+              allAes:
+                summary: All AEs (owner filter removed)
                 value: {}
               filtered:
-                summary: All AEs, filtered
+                summary: Several filters
                 value:
-                  scope: ALL
                   searchText: equity
                   criteria:
                     - field: aeName
@@ -317,10 +326,10 @@ paths:
       tags:
         - AttributeTagging
       summary: Filter dropdowns for Attribute Tagging
-      description: Every value used by the AEs in the requested scope, in screen order.
+      description: |
+        Every value across ALL AEs, in screen order - not only the user's own AEs.
+        The response is the same for every user, so the server caches it once.
       operationId: getAttributeTaggingFilters
-      parameters:
-        - $ref: '#/components/parameters/Scope'
       responses:
         '200':
           description: Filters in screen order
@@ -331,6 +340,12 @@ paths:
                 items:
                   $ref: '#/components/schemas/Filter'
               example:
+                - key: aeOwner
+                  label: AE Owner
+                  options:
+                    - value: '12345'
+                      label: John Smith
+                      count: 37
                 - key: aeName
                   label: AE Name
                   options:
@@ -469,13 +484,6 @@ components:
       schema:
         type: string
         default: aeName,asc
-    Scope:
-      name: scope
-      in: query
-      required: false
-      description: MINE = AEs where the caller is an owner (default); ALL = every AE
-      schema:
-        $ref: '#/components/schemas/Scope'
     AeId:
       name: aeId
       in: path
@@ -535,13 +543,6 @@ components:
       description: Screen identifier. Add new screens here.
       enum:
         - attribute-tagging
-    Scope:
-      type: string
-      description: MINE = AEs where the caller is an owner; ALL = every AE
-      enum:
-        - MINE
-        - ALL
-      default: MINE
     FilterKey:
       type: string
       description: |
@@ -550,6 +551,7 @@ components:
       enum:
         - aeId
         - aeName
+        - aeOwner
         - est
         - risk
         - keyLegalEntity
@@ -565,7 +567,7 @@ components:
         - auditTeam
     Criterion:
       type: object
-      description: For aeId and aeName the values are AE ids.
+      description: For aeId and aeName the values are AE ids; for aeOwner they are user ids.
       required:
         - field
         - values
@@ -586,10 +588,10 @@ components:
             type: string
     SearchRequest:
       type: object
-      description: An empty body {} returns the caller's own AEs.
+      description: |
+        An empty body {} returns all AEs. The UI opens the screen with criteria aeOwner = [the user's id],
+        so the user first sees their own AEs.
       properties:
-        scope:
-          $ref: '#/components/schemas/Scope'
         searchText:
           type: string
           maxLength: 100
@@ -646,7 +648,7 @@ components:
           example: Example Bank UK Ltd
         count:
           type: integer
-          description: Only in filter options - number of AEs in the requested scope with this value
+          description: Only in filter options - number of AEs (out of all AEs) with this value
           example: 12
     PageMeta:
       type: object
@@ -724,12 +726,15 @@ components:
       description: |
         The AE's value codes for every filter of the screen except aeId and aeName, keyed by filter key.
         Always arrays, also for single-value fields (businessArea, est ...). A missing key means no value.
+        aeOwner holds the owners' user ids.
         The browser filters with aeId, aeName and this map only, so every filter of the screen must be here.
       additionalProperties:
         type: array
         items:
           type: string
       example:
+        aeOwner:
+          - '12345'
         est:
           - EST-01
         businessArea:
@@ -789,7 +794,7 @@ components:
           example: Key Legal Entities
         options:
           type: array
-          description: Every value in the requested scope. For aeId and aeName, value = AE id.
+          description: Every value across all AEs (the same for every user). For aeId and aeName, value = AE id; for aeOwner, value = user id.
           items:
             $ref: '#/components/schemas/Option'
     LabelledValues:

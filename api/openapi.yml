@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan API Spec
-  version: 3.0.0
+  version: 4.0.0
   description: |
     Open API specification for myAuditPlan (mAP).
 
@@ -25,9 +25,11 @@ info:
     - Every AE in a response carries `canEdit`, computed by the server. The UI shows the rest read-only.
     - Edit endpoints re-check ownership and return **403** for non-owners. 404 means the AE does not exist.
 
-    ## scope
-    - `MINE` (default): AEs where the caller is an owner. Used when a screen opens.
-    - `ALL`: every AE.
+    ## My AEs vs all AEs
+    - Filter dropdowns always list every value across ALL AEs, for every user.
+    - "My AEs" is just the **AE Owner** filter. The UI preselects it with the logged-in user,
+      so the screen opens on their AEs. Removing it shows all AEs.
+    - Search with no criteria returns all AEs.
 
     ## Search semantics
     Values inside one criterion are OR'ed; different criteria are AND'ed.
@@ -44,10 +46,11 @@ info:
     `aeId` is always added to the sort as a tiebreaker.
 
     ## Screen flow (same for every screen)
-    1. On open: `GET /<screen>/filters?scope=MINE` and `POST /<screen>/aes/search?page=1` with `{}`.
-    2. Load the remaining pages until `lastPage=true`, then filter in the browser.
-       Until then, send the filters to `POST /<screen>/aes/search`.
-    3. "All AEs": the same calls with scope `ALL`.
+    1. On open: `GET /<screen>/filters` and `POST /<screen>/aes/search?page=1`
+       with `{"criteria":[{"field":"aeOwner","values":["<my id>"]}]}` - the user's AEs, shown at once.
+    2. In the background: `POST /<screen>/aes/search` with `{}`, page by page until `lastPage=true`
+       (about 2,500 AEs, 3 pages). From then on, every filter change is applied in the browser.
+    3. A filter change before the background load finishes is sent to `POST /<screen>/aes/search`.
     4. Click an AE: `GET /<screen>/aes/{aeId}`. Edit only when `canEdit` is true.
   license:
     name: Proprietary
