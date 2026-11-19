@@ -4,12 +4,6 @@ ScreenId:
   enum:
     - attribute-tagging
 
-Scope:
-  type: string
-  description: MINE = AEs where the caller is an owner; ALL = every AE
-  enum: [MINE, ALL]
-  default: MINE
-
 Option:
   type: object
   description: A value and its display text. Used for filter options, lookups and labelled attributes.
@@ -25,7 +19,7 @@ Option:
       example: Example Bank UK Ltd
     count:
       type: integer
-      description: Only in filter options - number of AEs in the requested scope with this value
+      description: Only in filter options - number of AEs (out of all AEs) with this value
       example: 12
 
 Person:
@@ -99,12 +93,14 @@ FilterValues:
   description: |
     The AE's value codes for every filter of the screen except aeId and aeName, keyed by filter key.
     Always arrays, also for single-value fields (businessArea, est ...). A missing key means no value.
+    aeOwner holds the owners' user ids.
     The browser filters with aeId, aeName and this map only, so every filter of the screen must be here.
   additionalProperties:
     type: array
     items:
       type: string
   example:
+    aeOwner: ['12345']
     est: [EST-01]
     businessArea: [BA-ERM]
     businessDivision: [BD-CORP]
@@ -160,6 +156,7 @@ FilterKey:
   enum:
     - aeId
     - aeName
+    - aeOwner
     - est
     - risk
     - keyLegalEntity
@@ -176,7 +173,7 @@ FilterKey:
 
 Criterion:
   type: object
-  description: For aeId and aeName the values are AE ids.
+  description: For aeId and aeName the values are AE ids; for aeOwner they are user ids.
   required: [field, values]
   properties:
     field:
@@ -194,10 +191,10 @@ Criterion:
 
 SearchRequest:
   type: object
-  description: An empty body {} returns the caller's own AEs.
+  description: |
+    An empty body {} returns all AEs. The UI opens the screen with criteria aeOwner = [the user's id],
+    so the user first sees their own AEs.
   properties:
-    scope:
-      $ref: '#/Scope'
     searchText:
       type: string
       maxLength: 100
@@ -219,7 +216,7 @@ Filter:
       example: Key Legal Entities
     options:
       type: array
-      description: Every value in the requested scope. For aeId and aeName, value = AE id.
+      description: Every value across all AEs (the same for every user). For aeId and aeName, value = AE id; for aeOwner, value = user id.
       items:
         $ref: '#/Option'
 

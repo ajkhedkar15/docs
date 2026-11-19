@@ -3,9 +3,10 @@ aesSearch:
     tags: [AttributeTagging]
     summary: List, search and filter Attribute Tagging cards
     description: |
-      The only list endpoint. An empty body {} returns the caller's own AEs (scope MINE).
+      The only list endpoint. An empty body {} returns all AEs.
+      The screen opens with criteria aeOwner = [the user's id] (the AE Owner filter preselected).
 
-      Filters on this screen - aeId, aeName, est, risk, keyLegalEntity, keyThirdParty,
+      Filters on this screen - aeId, aeName, aeOwner, est, risk, keyLegalEntity, keyThirdParty,
       keyApplication, businessArea, businessDivision, keyModel, archerRiskUnit, costCenter,
       location, product, auditTeam.
 
@@ -23,12 +24,17 @@ aesSearch:
             $ref: '../common/schemas.yml#/SearchRequest'
           examples:
             myAes:
-              summary: Screen opens - my AEs
+              summary: Screen opens - AE Owner preselected with the user
+              value:
+                criteria:
+                  - field: aeOwner
+                    values: ['12345']
+            allAes:
+              summary: All AEs (owner filter removed)
               value: {}
             filtered:
-              summary: All AEs, filtered
+              summary: Several filters
               value:
-                scope: ALL
                 searchText: equity
                 criteria:
                   - field: aeName
@@ -54,10 +60,10 @@ filters:
   get:
     tags: [AttributeTagging]
     summary: Filter dropdowns for Attribute Tagging
-    description: Every value used by the AEs in the requested scope, in screen order.
+    description: |
+      Every value across ALL AEs, in screen order - not only the user's own AEs.
+      The response is the same for every user, so the server caches it once.
     operationId: getAttributeTaggingFilters
-    parameters:
-      - $ref: '../common/parameters.yml#/Scope'
     responses:
       '200':
         description: Filters in screen order
@@ -68,6 +74,12 @@ filters:
               items:
                 $ref: '../common/schemas.yml#/Filter'
             example:
+              - key: aeOwner
+                label: AE Owner
+                options:
+                  - value: '12345'
+                    label: John Smith
+                    count: 37
               - key: aeName
                 label: AE Name
                 options:

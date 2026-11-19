@@ -87,7 +87,6 @@ savedFilters:
             screen: attribute-tagging
             name: UK legal entities
             search:
-              scope: ALL
               criteria:
                 - field: keyLegalEntity
                   values: [LE-UK-01]

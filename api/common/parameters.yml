@@ -7,14 +7,6 @@ AeId:
     type: string
     example: '000000004561'
 
-Scope:
-  name: scope
-  in: query
-  required: false
-  description: MINE = AEs where the caller is an owner (default); ALL = every AE
-  schema:
-    $ref: './schemas.yml#/Scope'
-
 Page:
   name: page
   in: query

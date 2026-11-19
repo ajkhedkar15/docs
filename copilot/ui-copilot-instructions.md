@@ -3,8 +3,8 @@
 ## What this app is
 myAuditPlan is an audit application made up of several screens (Attribute Tagging first, then Risk Assessment, Audit Plan and others). Almost every screen follows the same pattern:
 
-1. On opening, show the **Auditable Entities (AEs) assigned to the user**, plus a filter bar of dropdowns.
-2. The user changes filters (or switches to **All AEs**) to find what they want.
+1. On opening, show the **Auditable Entities (AEs) assigned to the user**: the **AE Owner** filter is preselected with them. The filter bar's dropdowns list **every** value across all AEs.
+2. The user changes filters, or removes the AE Owner filter to see all AEs.
 3. The user clicks an AE to see its details, and can edit it **only if they are an owner**. Other AEs are view-only.
 
 Typical size: about 1,000–2,500 AEs in total; one user owns far fewer. This is small enough to filter in the browser.
@@ -31,7 +31,7 @@ src/
 ├── api/                 generated types, API client, query key factory
 ├── auth/                "Who are you?" screen, CurrentUserContext (later: JWT login)
 ├── shared/
-│   └── AeSearchPage/    filter bar, chips, saved filters, MINE/ALL switch, result list, local filtering
+│   └── AeSearchPage/    filter bar, chips, saved filters, result list, local filtering
 └── features/
     ├── attribute-tagging/   card, detail page, edit form for this screen
     ├── risk-assessment/
@@ -51,26 +51,26 @@ Each screen is the shared `AeSearchPage` plus its own card, detail page and edit
 Each screen's endpoints are under `/api/v1/<screen>/...` and have the same shape: `POST /aes/search` (the only list endpoint), `GET /filters`, `GET /aes/{aeId}`, plus edit endpoints. List responses are always `{ page, pageSize, totalRecords, totalPages, lastPage, items }`. For Attribute Tagging the edit is `PUT /attribute-tagging/aes/{aeId}/tags`; the form's choices come from `GET /lookups/{key}` (for example `/lookups/keyApplication`), and it sends back `version` (409 means someone else changed it: reload and retry).
 
 ## Data loading (inside AeSearchPage)
-1. On open, fetch in parallel: `GET /filters?scope=MINE`, `POST /aes/search?page=1&pageSize=1000` with body `{}`, and saved filters for the screen.
-2. If a page returns `lastPage: false`, fetch the next pages in the background (`useInfiniteQuery`) until `lastPage: true`. Then the data set is **complete**.
-3. **When complete, filter in the browser** with no API call. Until complete, send the current filters to `POST /aes/search`.
-4. When the user switches to **All AEs**, do the same with `scope=ALL` (filters and list).
-5. Show a skeleton while the first page loads and a clear empty state when nothing matches.
+1. On open, fetch in parallel: `GET /filters`, saved filters for the screen, and `POST /aes/search?page=1&pageSize=1000` with `{"criteria":[{"field":"aeOwner","values":["<my id>"]}]}`. The **AE Owner** filter starts preselected with the logged-in user, so the user's own AEs show at once.
+2. In the background, load **all** AEs: `POST /aes/search` with `{}`, page by page (`useInfiniteQuery`) until `lastPage: true` (about 2,500 AEs, 3 pages). From then on the data set is **complete**.
+3. **When complete, apply every filter change in the browser**, with no API call. Before that, send the current filters to `POST /aes/search`.
+4. Show a skeleton while the first page loads and a clear empty state when nothing matches.
 
 ## Filter rules (must match the backend exactly)
 - Dropdowns and their options come **only from `/filters`**. Never build options from the loaded rows, which may be incomplete.
 - Show each option's `label`; send its `value`. For AE ID and AE Name, the value is the AE id because names repeat.
 - Show labels for codes on cards by looking them up in the `/filters` options (keep a `key → value → label` map). Detail pages already get labels in `attributes`.
 - Values inside one filter are **OR**; different filters are **AND**. `EXCLUDE` means the AE has none of the selected values.
-- Filter only on `aeId`, `aeName`, `aeDescription` (search text) and the card's **`filterValues`** map. For `aeId` and `aeName` the selected values are AE ids, so compare with `ae.aeId`. Every other filter key is in `filterValues` as an array, and matches if **any** of its codes is selected. A key missing from `filterValues` means the AE has no value.
+- Filter only on `aeId`, `aeName`, `aeDescription` (search text) and the card's **`filterValues`** map. For `aeId` and `aeName` the selected values are AE ids, so compare with `ae.aeId`. `aeOwner` values are user ids and are in `filterValues.aeOwner`. Every other filter key is in `filterValues` as an array, and matches if **any** of its codes is selected. A key missing from `filterValues` means the AE has no value.
 - `searchText` is a case-insensitive contains match, debounced by 250 ms.
 - `/filters` returns every option for every filter (there is no typeahead). The search box inside a dropdown filters that dropdown's options locally.
 - Put the local filtering in one pure function (`applyFilters(items, criteria, searchText)`) with unit tests, because its results must equal the server's.
 
 ## Filter state and UI
-- Filter state = `{ scope, searchText, criteria[] }`, exactly the API `SearchRequest`. Saved filters store it as `search`.
+- Filter state = `{ searchText, criteria[] }`, exactly the API `SearchRequest`. Saved filters store it as `search`.
+- Initial state: `criteria = [{ field: 'aeOwner', values: [<my id>] }]`. There is no separate "my AEs / all AEs" switch; removing the AE Owner chip shows all AEs.
 - Keep it in the **URL query string** so views can be bookmarked and shared, and so the back button works.
-- Show selected values as chips (`<Filter label>: <option label> ✕`). "Clear All Filters" resets everything except scope.
+- Show selected values as chips (`<Filter label>: <option label> ✕`). "Clear All Filters" removes every filter, including AE Owner, and shows all AEs.
 - "Add to Saved Filters" saves `{ screen, name, search }`. Choosing a saved filter loads `search` into state.
 
 ## Editing and permissions
@@ -80,7 +80,7 @@ Each screen's endpoints are under `/api/v1/<screen>/...` and have the same shape
 - After a successful edit, invalidate the screen's list, filters and detail queries.
 
 ## TanStack Query
-- Build keys with a factory in `src/api/queryKeys.ts`, always including `screen`, `scope` and the user id, for example `['aes', screen, scope, userId]`.
+- Build keys with a factory in `src/api/queryKeys.ts`, always including `screen` and the user id, for example `['aes', screen, userId]`. Filter options don't depend on the user: `['filters', screen]`.
 - Call `queryClient.clear()` on "Switch user" (later: logout) so the next user never sees cached data.
 - Use `staleTime` of about 5 minutes for lists and filters.
 
