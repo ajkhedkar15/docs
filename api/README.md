@@ -56,9 +56,9 @@ Filters are screen-based: a new screen keeps the same APIs and shapes and only d
 | Option | `id` is sent back, `name` is shown; same text when there's no separate id | — |
 | Typing in a dropdown | Narrows the options in the browser; no search API | — |
 
-Shared shapes are in `common/schemas.yml` (`Filter`, `Option`, `Filters`, `PageMeta`). A screen adds its own `FilterKey` enum and a `Filter` that uses it, like `attribute-tagging/schemas.yml`.
+Shared shapes are in `common/schemas.yml` (`Filter`, `Option`, `Filters`, `PageMeta`). A screen adds its own `<Screen>FilterKey` enum and `<Screen>Filter` that uses it, like `AttributeTaggingFilterKey` and `AttributeTaggingFilter` in `attribute-tagging/schemas.yml`. Never reuse a name from `common/` (tools that merge files by schema name can't resolve duplicates).
 
-**Adding a screen:** create `api/<screen>/paths.yml` and `schemas.yml`, copy the `filters`, `aesSearch` and `savedFilters` paths from Attribute Tagging, change the `FilterKey` list and the card, add the paths and a tag to `openapi.yml`, then lint and bundle.
+**Adding a screen:** create `api/<screen>/paths.yml` and `schemas.yml`, copy the `filters`, `aesSearch` and `savedFilters` paths from Attribute Tagging, change the `<Screen>FilterKey` list and the card, add the paths and a tag to `openapi.yml`, then lint and bundle.
 
 ## Working on the spec
 

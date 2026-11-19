@@ -66,21 +66,13 @@ security:
   - devUserHeader: []
   - bearerAuth: []
 tags:
-  - name: AttributeTaggingFilters
-    description: Filter dropdowns (API 1)
-  - name: AttributeTaggingAes
-    description: AE list and AE detail (API 2, 3)
-  - name: AttributeTaggingLock
-    description: Edit lock (API 4)
-  - name: AttributeTaggingTags
-    description: Update tags, All Available and children (API 5, 6)
-  - name: AttributeTaggingSavedFilters
-    description: Saved filters (API 7)
+  - name: AttributeTagging
+    description: Attribute Tagging screen - filters, AE list and detail, edit lock, tagging, saved filters
 paths:
   /attribute-tagging/filters:
     get:
       tags:
-        - AttributeTaggingFilters
+        - AttributeTagging
       summary: 1. All dropdowns and their values
       description: |
         Every filter in screen order, each a plain list of values. 5 come from the AE table; the
@@ -96,7 +88,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Filter-2'
+                  $ref: '#/components/schemas/AttributeTaggingFilter'
               example:
                 - key: aeOwner
                   label: AE Owner
@@ -123,7 +115,7 @@ paths:
   /attribute-tagging/aes/search:
     post:
       tags:
-        - AttributeTaggingAes
+        - AttributeTagging
       summary: 2. AE list for the selected filters
       description: |
         The server applies the filters and returns one page of cards, sorted by AE name.
@@ -194,7 +186,7 @@ paths:
   /attribute-tagging/aes/{aeId}:
     get:
       tags:
-        - AttributeTaggingAes
+        - AttributeTagging
       summary: 3. One AE with its 11 attribute types - tagged and recommended
       description: |
         Anyone can view, including the recommendations. canEdit is true only for the owner who
@@ -276,7 +268,7 @@ paths:
       - $ref: '#/components/parameters/AeId'
     post:
       tags:
-        - AttributeTaggingLock
+        - AttributeTagging
       summary: 4a. Take or renew the edit lock (Edit button)
       description: |
         - An owner and nobody else holds the lock (or it expired) -> the caller gets it.
@@ -302,7 +294,7 @@ paths:
           $ref: '#/components/responses/Locked'
     delete:
       tags:
-        - AttributeTaggingLock
+        - AttributeTagging
       summary: 4b. Release the edit lock (Done, Cancel, or opening another AE)
       description: |
         Releases the lock if the caller holds it. Does nothing if they don't (it may have expired).
@@ -318,7 +310,7 @@ paths:
   /attribute-tagging/aes/{aeId}/attributes:
     put:
       tags:
-        - AttributeTaggingTags
+        - AttributeTagging
       summary: 5. Update - save the full list of tagged attributes
       description: |
         Send every attribute that should be tagged after the save, across all 11 types.
@@ -370,7 +362,7 @@ paths:
   /attribute-tagging/attribute-types/{type}/attributes:
     get:
       tags:
-        - AttributeTaggingTags
+        - AttributeTagging
       summary: 6a. All Available - the top-level attributes of one type
       description: |
         Every top-level attribute of the type (parentId = null), from that type's own table. For types
@@ -407,7 +399,7 @@ paths:
   /attribute-tagging/attribute-types/{type}/attributes/{attributeId}/children:
     get:
       tags:
-        - AttributeTaggingTags
+        - AttributeTagging
       summary: 6b. Children of one attribute (Required Dependency dialog)
       description: |
         Called when the user adds an attribute that has children. The dialog lists these; the user
@@ -449,7 +441,7 @@ paths:
   /attribute-tagging/saved-filters:
     get:
       tags:
-        - AttributeTaggingSavedFilters
+        - AttributeTagging
       summary: 7a. The user's saved filters (up to 3)
       operationId: getSavedFilters
       responses:
@@ -466,7 +458,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
     post:
       tags:
-        - AttributeTaggingSavedFilters
+        - AttributeTagging
       summary: 7b. Save the current filters
       description: At most 3 per user. A 4th returns 409; the user deletes one first.
       operationId: createSavedFilter
@@ -505,7 +497,7 @@ paths:
   /attribute-tagging/saved-filters/{id}:
     delete:
       tags:
-        - AttributeTaggingSavedFilters
+        - AttributeTagging
       summary: 7c. Delete a saved filter
       operationId: deleteSavedFilter
       parameters:
@@ -574,7 +566,7 @@ components:
           description: Every value, as a plain list
           items:
             $ref: '#/components/schemas/Option'
-    FilterKey:
+    AttributeTaggingFilterKey:
       type: string
       description: |
         Attribute Tagging's dropdowns, in screen order. Every dropdown is a plain list (no levels).
@@ -600,14 +592,14 @@ components:
         - costCenter
         - location
         - product
-    Filter-2:
+    AttributeTaggingFilter:
       description: One Attribute Tagging dropdown (the common Filter, with this screen's keys)
       allOf:
         - $ref: '#/components/schemas/Filter'
         - type: object
           properties:
             key:
-              $ref: '#/components/schemas/FilterKey'
+              $ref: '#/components/schemas/AttributeTaggingFilterKey'
     ErrorResponse:
       type: object
       description: RFC 7807 problem detail (Spring ProblemDetail)

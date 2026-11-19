@@ -50,11 +50,11 @@ com.map
 ├── exception    NotOwnerException, AeLockedException, NotFoundException, SavedFilterLimitException, ...
 └── config       caching, compression, Jackson
 ```
-- **One package per layer**, not per screen. A new screen adds its classes to these packages (e.g. `web/RiskAssessmentAeController`) and a `ScreenFilters` bean in `filter`.
+- **One package per layer**, not per screen. A new screen adds its classes to these packages (e.g. `web/RiskAssessmentController`) and a `ScreenFilters` bean in `filter`.
 - Screen-specific classes are prefixed with the screen (`AttributeTagging…`); shared ones are not (`FilterService`, `LockService`, `SavedFilterService`, `CurrentUser`).
 
 ### Code generation (pom.xml)
-Generate from the bundled spec. Each spec **tag** becomes one interface in `com.map.api`, and each interface gets one controller.
+Generate from the bundled spec. Each spec **tag** becomes one interface in `com.map.api`. Each screen has **one tag**, so one interface and one controller per screen: `AttributeTagging` → `AttributeTaggingApi` → `AttributeTaggingController`.
 ```xml
 <plugin>
   <groupId>org.openapitools</groupId>
@@ -78,23 +78,43 @@ Generate from the bundled spec. Each spec **tag** becomes one interface in `com.
 </plugin>
 ```
 
-### Controllers (`web`) - one per spec tag
-| Spec tag → generated interface | Controller | Endpoints | Calls |
-|---|---|---|---|
-| `AttributeTaggingFilters` → `AttributeTaggingFiltersApi` | `AttributeTaggingFilterController` | `GET /filters` | `FilterService.getFilters("attribute-tagging")` |
-| `AttributeTaggingAes` → `AttributeTaggingAesApi` | `AttributeTaggingAeController` | `POST /aes/search`, `GET /aes/{aeId}` | `AttributeTaggingAeService.search(...)`, `.getDetail(aeId, user)` |
-| `AttributeTaggingLock` → `AttributeTaggingLockApi` | `AttributeTaggingLockController` | `POST` / `DELETE /aes/{aeId}/lock` | `LockService.acquireOrRenew(aeId, user)`, `.release(aeId, user)` |
-| `AttributeTaggingTags` → `AttributeTaggingTagsApi` | `AttributeTaggingTagController` | `PUT /aes/{aeId}/attributes`, `GET /attribute-types/{type}/attributes`, `GET …/{attributeId}/children` | `TaggingService.update(...)`, `AttributeCatalogService.topLevel(type)`, `.children(type, id)` |
-| `AttributeTaggingSavedFilters` → `AttributeTaggingSavedFiltersApi` | `AttributeTaggingSavedFilterController` | `GET` / `POST /saved-filters`, `DELETE /saved-filters/{id}` | `SavedFilterService` (with screen `attribute-tagging`) |
+### Controller (`web`) - one per screen
+`AttributeTaggingController implements AttributeTaggingApi` handles all Attribute Tagging endpoints. Each method calls **one** service method:
 
-**Controllers are thin:** implement the generated interface, get the user from `CurrentUser`, call **one** service method, return. No queries, `if`s or rules in `web`.
+| Endpoint | Method (operationId) | Calls |
+|---|---|---|
+| `GET /filters` | `getFilters` | `FilterService.getFilters("attribute-tagging")` |
+| `POST /aes/search` | `searchAes` | `AttributeTaggingAeService.search(filters, page, pageSize, user)` |
+| `GET /aes/{aeId}` | `getAe` | `AttributeTaggingAeService.getDetail(aeId, user)` |
+| `POST /aes/{aeId}/lock` | `lockAe` | `LockService.acquireOrRenew(aeId, user)` |
+| `DELETE /aes/{aeId}/lock` | `unlockAe` | `LockService.release(aeId, user)` |
+| `PUT /aes/{aeId}/attributes` | `updateAeAttributes` | `TaggingService.update(aeId, request, user)` |
+| `GET /attribute-types/{type}/attributes` | `getAttributes` | `AttributeCatalogService.topLevel(type)` |
+| `GET /attribute-types/{type}/attributes/{attributeId}/children` | `getAttributeChildren` | `AttributeCatalogService.children(type, attributeId)` |
+| `GET /saved-filters` | `getSavedFilters` | `SavedFilterService.list("attribute-tagging", user)` |
+| `POST /saved-filters` | `createSavedFilter` | `SavedFilterService.create("attribute-tagging", request, user)` |
+| `DELETE /saved-filters/{id}` | `deleteSavedFilter` | `SavedFilterService.delete(id, user)` |
+
+**The controller is thin:** implement the generated interface, get the user from `CurrentUser`, call one service method, return. No queries, `if`s or rules in `web`. A new screen gets its own tag, interface and controller (for example `RiskAssessmentController`).
 ```java
 @RestController
 @RequiredArgsConstructor
-public class AttributeTaggingLockController implements AttributeTaggingLockApi {
+public class AttributeTaggingController implements AttributeTaggingApi {
+
+    private static final String SCREEN = "attribute-tagging";
 
     private final CurrentUser currentUser;
+    private final FilterService filterService;
+    private final AttributeTaggingAeService aeService;
     private final LockService lockService;
+    private final TaggingService taggingService;
+    private final AttributeCatalogService catalogService;
+    private final SavedFilterService savedFilterService;
+
+    @Override
+    public ResponseEntity<List<AttributeTaggingFilter>> getFilters() {
+        return ResponseEntity.ok(filterService.getFilters(SCREEN));
+    }
 
     @Override
     public ResponseEntity<Lock> lockAe(String aeId) {
@@ -106,6 +126,8 @@ public class AttributeTaggingLockController implements AttributeTaggingLockApi {
         lockService.release(aeId, currentUser.get());
         return ResponseEntity.noContent().build();
     }
+
+    // ... the other operations, each one line to its service
 }
 ```
 
@@ -165,7 +187,7 @@ public class AttributeTaggingFilters implements ScreenFilters {
 `FilterSpecificationBuilder.build(screen, filters)` turns `{ filters }` into a `Specification<AeEntity>`: `IN (...)` for AE columns, `EXISTS` on ACTIVE tags for attribute types, unknown key → `ValidationException`.
 
 ### Example flow: Update (`PUT /aes/{aeId}/attributes`)
-1. `AttributeTaggingTagController.updateAeAttributes` → `TaggingService.update(aeId, request, currentUser.get())`.
+1. `AttributeTaggingController.updateAeAttributes` → `TaggingService.update(aeId, request, currentUser.get())`.
 2. `TaggingService.update`, `@Transactional`:
    1. `LockService.requireHeldBy(aeId, user)` → 403 not owner, 409 locked by someone else, renews otherwise;
    2. validate every item (exists, right type, no children, comment on new ones) → 400;

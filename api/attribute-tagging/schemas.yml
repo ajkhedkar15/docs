@@ -64,7 +64,7 @@ AePage:
           items:
             $ref: '#/AeCard'
 
-FilterKey:
+AttributeTaggingFilterKey:
   type: string
   description: |
     Attribute Tagging's dropdowns, in screen order. Every dropdown is a plain list (no levels).
@@ -91,14 +91,14 @@ FilterKey:
     - location
     - product
 
-Filter:
+AttributeTaggingFilter:
   description: One Attribute Tagging dropdown (the common Filter, with this screen's keys)
   allOf:
     - $ref: '../common/schemas.yml#/Filter'
     - type: object
       properties:
         key:
-          $ref: '#/FilterKey'
+          $ref: '#/AttributeTaggingFilterKey'
 
 AttributeType:
   type: string
