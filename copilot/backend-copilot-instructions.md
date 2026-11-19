@@ -8,7 +8,7 @@ The Spring Boot REST API behind the **Attribute Tagging** screen of myAuditPlan.
 - Use the libraries already in `pom.xml`. Do not add a dependency without saying why.
 
 ## The API spec is the contract
-- Source: `api/openapi.yml` (split into `api/common` and `api/attribute-tagging`). Generate from the bundled `api/dist/openapi.bundled.yml` with openapi-generator (`interfaceOnly=true`) and implement the generated interfaces.
+- Source: `api/openapi.yml` (split into `api/common` and `api/attribute-tagging`). Generate from the bundled `api/dist/openapi.bundled.yml` with openapi-generator (settings under **Backend design**) and implement the generated interfaces.
 - **If code and spec disagree, the spec wins.** Never add, rename or change an endpoint or field in code alone; change the spec first, in the same PR.
 
 ## The APIs (all under `/api/v1/attribute-tagging`)
@@ -34,26 +34,145 @@ In screen order: `est` (Est), `risk` (Risks), `legalEntity` (Key Legal Entities)
 - **Only attributes without children can be tagged.** API 5 rejects any other with 400.
 - Tagged attributes carry `path`: the names of their parents, top level first.
 
-## Package structure (by layer, shared by all screens)
+## Backend design
+
+### Packages (by layer, shared by all screens)
 ```
 com.map
-├── web          FilterController, AeController, LockController, TaggingController,
-│                SavedFilterController, GlobalExceptionHandler
-├── service      FilterService, AeQueryService, AeDetailService, LockService, TaggingService,
-│                AttributeCatalogService, RecommendationService, SavedFilterService
-├── repository   AeRepository, AeOwnerRepository, AeTagRepository, AeLockRepository,
-│                SavedFilterRepository, one repository per attribute type table
+├── api          generated controller interfaces (openapi-generator) - never edit
+├── dto          generated request/response classes (openapi-generator) - never edit
+├── web          controllers + GlobalExceptionHandler
+├── service      business rules and transactions
+├── repository   Spring Data JPA repositories
 ├── entity       JPA entities
-├── dto          generated from the spec (openapi-generator); never hand-written
 ├── filter       FilterDefinition, ScreenFilters, AttributeTaggingFilters, FilterSpecificationBuilder
 ├── security     CurrentUser, UserContext, HeaderCurrentUser (dev-auth), later JwtCurrentUser
 ├── exception    NotOwnerException, AeLockedException, NotFoundException, SavedFilterLimitException, ...
-└── config       caching, compression, generator settings
+└── config       caching, compression, Jackson
 ```
-- **One package per layer**, not per screen. A new screen adds its classes to these packages (e.g. `web/RiskAssessmentController`, `service/RiskAssessmentService`) and a `ScreenFilters` bean in `filter`.
-- **Controllers are thin:** implement the generated interface, get the user from `CurrentUser`, call one service method, return. No queries or business rules in `web`.
-- **Services** hold the rules and transactions; **repositories** only data access.
-- Services throw exceptions from `exception`; `GlobalExceptionHandler` maps them to ProblemDetail (403 not owner, 409 locked / saved-filter limit, 404, 400 validation, 401 no user).
+- **One package per layer**, not per screen. A new screen adds its classes to these packages (e.g. `web/RiskAssessmentAeController`) and a `ScreenFilters` bean in `filter`.
+- Screen-specific classes are prefixed with the screen (`AttributeTagging…`); shared ones are not (`FilterService`, `LockService`, `SavedFilterService`, `CurrentUser`).
+
+### Code generation (pom.xml)
+Generate from the bundled spec. Each spec **tag** becomes one interface in `com.map.api`, and each interface gets one controller.
+```xml
+<plugin>
+  <groupId>org.openapitools</groupId>
+  <artifactId>openapi-generator-maven-plugin</artifactId>
+  <executions><execution><goals><goal>generate</goal></goals>
+    <configuration>
+      <inputSpec>${project.basedir}/api/dist/openapi.bundled.yml</inputSpec>
+      <generatorName>spring</generatorName>
+      <apiPackage>com.map.api</apiPackage>
+      <modelPackage>com.map.dto</modelPackage>
+      <configOptions>
+        <interfaceOnly>true</interfaceOnly>
+        <useTags>true</useTags>
+        <useSpringBoot3>true</useSpringBoot3>
+        <skipDefaultInterface>true</skipDefaultInterface>
+        <openApiNullable>false</openApiNullable>
+        <useBeanValidation>true</useBeanValidation>
+      </configOptions>
+    </configuration>
+  </execution></executions>
+</plugin>
+```
+
+### Controllers (`web`) - one per spec tag
+| Spec tag → generated interface | Controller | Endpoints | Calls |
+|---|---|---|---|
+| `AttributeTaggingFilters` → `AttributeTaggingFiltersApi` | `AttributeTaggingFilterController` | `GET /filters` | `FilterService.getFilters("attribute-tagging")` |
+| `AttributeTaggingAes` → `AttributeTaggingAesApi` | `AttributeTaggingAeController` | `POST /aes/search`, `GET /aes/{aeId}` | `AttributeTaggingAeService.search(...)`, `.getDetail(aeId, user)` |
+| `AttributeTaggingLock` → `AttributeTaggingLockApi` | `AttributeTaggingLockController` | `POST` / `DELETE /aes/{aeId}/lock` | `LockService.acquireOrRenew(aeId, user)`, `.release(aeId, user)` |
+| `AttributeTaggingTags` → `AttributeTaggingTagsApi` | `AttributeTaggingTagController` | `PUT /aes/{aeId}/attributes`, `GET /attribute-types/{type}/attributes`, `GET …/{attributeId}/children` | `TaggingService.update(...)`, `AttributeCatalogService.topLevel(type)`, `.children(type, id)` |
+| `AttributeTaggingSavedFilters` → `AttributeTaggingSavedFiltersApi` | `AttributeTaggingSavedFilterController` | `GET` / `POST /saved-filters`, `DELETE /saved-filters/{id}` | `SavedFilterService` (with screen `attribute-tagging`) |
+
+**Controllers are thin:** implement the generated interface, get the user from `CurrentUser`, call **one** service method, return. No queries, `if`s or rules in `web`.
+```java
+@RestController
+@RequiredArgsConstructor
+public class AttributeTaggingLockController implements AttributeTaggingLockApi {
+
+    private final CurrentUser currentUser;
+    private final LockService lockService;
+
+    @Override
+    public ResponseEntity<Lock> lockAe(String aeId) {
+        return ResponseEntity.ok(lockService.acquireOrRenew(aeId, currentUser.get()));
+    }
+
+    @Override
+    public ResponseEntity<Void> unlockAe(String aeId) {
+        lockService.release(aeId, currentUser.get());
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+### Services (`service`)
+| Service | Shared or screen | Does |
+|---|---|---|
+| `FilterService` | shared | Builds `/filters` from a screen's `ScreenFilters` (cached per screen); validates filter keys |
+| `LockService` | shared | Take / renew / release the AE lock; `requireHeldBy(aeId, user)` for edits |
+| `SavedFilterService` | shared | Per user and screen, max 3 |
+| `AttributeTaggingAeService` | screen | Search (paged, via `FilterSpecificationBuilder`) and AE detail (sections, `isOwner`, `lock`, `canEdit`) |
+| `TaggingService` | screen | Update: validate, add ACTIVE / set INACTIVE, recalc recommendations, evict caches |
+| `AttributeCatalogService` | screen | All Available and children, from each attribute type's table (cached) |
+| `RecommendationService` | screen | Runs the recommendation rules for an AE and stores the result |
+
+Services hold the rules and `@Transactional` boundaries; repositories only do data access. Services return generated DTOs (`com.map.dto`), mapped from entities in the service.
+
+### Errors (`exception` + `web/GlobalExceptionHandler`)
+Services throw; one `@RestControllerAdvice` maps to ProblemDetail (`application/problem+json`):
+| Exception | Status | `detail` |
+|---|---|---|
+| `MissingUserException` | 401 | No user identified. Pick your name again. |
+| `NotOwnerException` | 403 | Only an owner of Auditable Entity {aeId} can edit it |
+| `NotFoundException` | 404 | {what} {id} not found |
+| `AeLockedException(lockedBy)` | 409 | Auditable Entity {aeId} is being edited by {name} |
+| `SavedFilterLimitException` | 409 | You can save up to 3 filters. Delete one first. |
+| `ValidationException` / bean validation | 400 | Invalid request, with `errors[]` (`field`, `message`) |
+| anything else | 500 | Generic message with a reference id; log the stack trace, never return it |
+
+### The filter engine (`filter`)
+```java
+public record FilterDefinition(String key, String label, FilterSource source) {}  // AE column or attribute type table
+
+public interface ScreenFilters {
+    String screen();                       // "attribute-tagging"
+    List<FilterDefinition> definitions();  // in screen order
+}
+
+@Component
+public class AttributeTaggingFilters implements ScreenFilters {
+    public String screen() { return "attribute-tagging"; }
+    public List<FilterDefinition> definitions() {
+        return List.of(
+            aeColumn("aeId", "AE ID", "aeId"),
+            aeColumn("aeName", "AE Name", "aeId"),          // option id = AE id, name = AE name
+            aeOwner("aeOwner", "AE Owner"),
+            attributeType("est", "EST"),
+            attributeType("risk", "Risks"),
+            attributeType("legalEntity", "Key Legal Entities"),
+            // ... regulation, thirdParty, application,
+            aeColumn("businessArea", "Business Area", "businessArea"),
+            aeColumn("businessDivision", "Division", "businessDivision")
+            // ... model, archerRiskUnit, costCenter, location, product
+        );
+    }
+}
+```
+`FilterSpecificationBuilder.build(screen, filters)` turns `{ filters }` into a `Specification<AeEntity>`: `IN (...)` for AE columns, `EXISTS` on ACTIVE tags for attribute types, unknown key → `ValidationException`.
+
+### Example flow: Update (`PUT /aes/{aeId}/attributes`)
+1. `AttributeTaggingTagController.updateAeAttributes` → `TaggingService.update(aeId, request, currentUser.get())`.
+2. `TaggingService.update`, `@Transactional`:
+   1. `LockService.requireHeldBy(aeId, user)` → 403 not owner, 409 locked by someone else, renews otherwise;
+   2. validate every item (exists, right type, no children, comment on new ones) → 400;
+   3. diff with current ACTIVE tags: insert new as ACTIVE, set missing to INACTIVE, save changed comments;
+   4. `RecommendationService.recalculate(aeId)`;
+   5. update AE `modifiedOn` / `modifiedBy`; evict the `/filters` cache.
+3. Return `AttributeTaggingAeService.getDetail(aeId, user)` (same shape as API 3).
 
 ## Who is the caller
 - **Now (temporary, no JWT):** the UI sends the user id in the **`X-User-Id`** header. Implement `HeaderCurrentUser`, active only under the Spring profile **`dev-auth`**: read the header, load the user, return 401 if missing or unknown. Not secure; never enable in production.
@@ -128,6 +247,8 @@ com.map
 
 ## Don't
 - Don't add endpoints or fields that aren't in the spec.
+- Don't edit generated code in `com.map.api` or `com.map.dto`; change the spec and regenerate.
+- Don't put queries or business rules in controllers, or create packages per screen.
 - Don't take the user from a parameter or body, or trust `canEdit` from the client.
 - Don't use joins for multi-value filters or `JOIN FETCH` with paging.
 - Don't hard-delete tagged attributes; set them `INACTIVE`.
