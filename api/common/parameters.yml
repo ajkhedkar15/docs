@@ -27,3 +27,10 @@ PageSize:
     default: 20
     minimum: 1
     maximum: 100
+
+AttributeTypePath:
+  name: type
+  in: path
+  required: true
+  schema:
+    $ref: '../attribute-tagging/schemas.yml#/AttributeType'

@@ -40,8 +40,8 @@ AeCard:
       example: '2026-10-11T14:21:00Z'
     recommendationCount:
       type: integer
-      description: Shown as "N Recommendations" to everyone (owners and viewers)
-      example: 4
+      description: Total across all 11 types. Shown as "N Recommendations" to everyone.
+      example: 49
     isOwner:
       type: boolean
       description: true = show the Edit option; false = View only
@@ -51,7 +51,7 @@ AeCard:
       allOf:
         - $ref: '../common/schemas.yml#/Person'
       nullable: true
-      description: Set when another owner is editing this AE right now
+      description: Set when an owner is editing this AE right now
 
 AePage:
   allOf:
@@ -64,42 +64,114 @@ AePage:
           items:
             $ref: '#/AeCard'
 
+FilterKey:
+  type: string
+  description: |
+    Attribute Tagging's dropdowns, in screen order. Every dropdown is a plain list (no levels).
+    - aeId, aeName, aeOwner, businessArea, businessDivision - from the AE table.
+      AE Owner is preselected with the logged-in user.
+    - est, risk, legalEntity, regulation, thirdParty, application, model, archerRiskUnit,
+      costCenter, location, product - the 11 attribute types, each from its own table.
+      Options = every taggable value of that type; picking one finds the AEs that have it tagged.
+  enum:
+    - aeId
+    - aeName
+    - aeOwner
+    - est
+    - risk
+    - legalEntity
+    - regulation
+    - thirdParty
+    - application
+    - businessArea
+    - businessDivision
+    - model
+    - archerRiskUnit
+    - costCenter
+    - location
+    - product
+
+Filter:
+  description: One Attribute Tagging dropdown (the common Filter, with this screen's keys)
+  allOf:
+    - $ref: '../common/schemas.yml#/Filter'
+    - type: object
+      properties:
+        key:
+          $ref: '#/FilterKey'
+
 AttributeType:
   type: string
   description: |
-    One of the 11 attribute types, for example keyApplication, keyModel, keyThirdParty,
-    keyLegalEntity, risk, archerRiskUnit, costCenter, location, product.
-  example: keyApplication
+    The 11 attribute types, in screen order (label on screen in brackets):
+    est (Est), risk (Risks), legalEntity (Key Legal Entities), regulation (Key Regulations),
+    thirdParty (Key Third Parties), application (Key Applications), model (Key Models),
+    archerRiskUnit (Archer Risk Units), costCenter (General Ledger / Cost Centers),
+    location (Locations), product (Products).
+  enum:
+    - est
+    - risk
+    - legalEntity
+    - regulation
+    - thirdParty
+    - application
+    - model
+    - archerRiskUnit
+    - costCenter
+    - location
+    - product
+  example: legalEntity
 
 Attribute:
   type: object
-  required: [attributeId, attributeType, name]
+  description: |
+    One attribute. Each of the 11 types has its own table, with 2,000+ attributes each.
+    Some types are hierarchies: an attribute can have children, several levels deep.
+    Only an attribute with no children (hasChildren = false) can be tagged. Picking one that has
+    children opens the "Required Dependency" dialog, filled from the children endpoint, until the
+    user reaches attributes without children. Types that are not hierarchies are all hasChildren = false.
+  required: [attributeId, attributeType, name, hasChildren]
   properties:
     attributeId:
       type: string
-      example: APP-310
+      example: LE-UK-01
     attributeType:
       $ref: '#/AttributeType'
     name:
       type: string
-      example: NAV Calculator
+      example: Example Bank UK Ltd
     description:
       type: string
       nullable: true
-      example: Calculates daily net asset value
+      example: UK booking entity
+    parentId:
+      type: string
+      nullable: true
+      description: The parent attribute's id; null at the top level
+      example: LE-UK
+    hasChildren:
+      type: boolean
+      description: true = cannot be tagged itself; the user must pick at least one child
+      example: false
 
 TaggedAttribute:
-  description: An attribute tagged to the AE now (status ACTIVE)
+  description: An attribute tagged to the AE now (status ACTIVE). Always one without children.
   allOf:
     - $ref: '#/Attribute'
     - type: object
       required: [status]
       properties:
+        path:
+          type: array
+          description: Names of its parents, top level first, for display (empty at the top level)
+          items:
+            type: string
+          example: [Example Bank Group, Example Bank UK]
         comment:
           type: string
           nullable: true
           description: Why it was tagged
-          example: Core ledger for this fund
+          example: UK booking entity for this fund
         status:
           type: string
           enum: [ACTIVE]
@@ -112,9 +184,9 @@ TaggedAttribute:
 
 RecommendedAttribute:
   description: |
-    An attribute the recommendation rules suggest, not tagged yet. Everyone sees recommendations;
-    only the owner holding the lock can add one. The rules run again after every Update, because
-    a newly tagged attribute can change what is recommended.
+    An attribute the recommendation rules suggest ("Suggested to Add"), not tagged yet. It can have
+    children; then adding it opens the Required Dependency dialog. Everyone sees recommendations;
+    only the owner holding the lock can add one. The rules run again after every Update.
   allOf:
     - $ref: '#/Attribute'
     - type: object
@@ -127,32 +199,38 @@ RecommendedAttribute:
 AttributeTypeGroup:
   type: object
   description: |
-    One attribute type with its three lists. Each attribute appears in only one list:
-    available = every attribute of this type that is neither tagged nor recommended.
-  required: [type, label, tagged, recommended, available]
+    One attribute type section of the AE. "All Available" is not here: it is the same for every AE,
+    so the UI loads it from the attributes endpoint when the section is opened in edit mode.
+  required: [type, label, recommendationCount, tagged, recommended]
   properties:
     type:
       $ref: '#/AttributeType'
     label:
       type: string
-      example: Key Applications
+      example: Key Legal Entities
+    description:
+      type: string
+      nullable: true
+      description: The explanation shown when the section is opened
+      example: Legal entities the AE operates through
+    recommendationCount:
+      type: integer
+      description: Shown as "N Recommendations" on the section
+      example: 47
     tagged:
       type: array
       items:
         $ref: '#/TaggedAttribute'
     recommended:
       type: array
+      description: Suggested to Add - excludes attributes already tagged
       items:
         $ref: '#/RecommendedAttribute'
-    available:
-      type: array
-      items:
-        $ref: '#/Attribute'
 
 AeDetail:
   type: object
-  description: One AE with all 11 attribute types
-  required: [aeId, aeName, aeOwners, isOwner, canEdit, attributeTypes]
+  description: One AE with its 11 attribute type sections
+  required: [aeId, aeName, aeOwners, isOwner, canEdit, recommendationCount, attributeTypes]
   properties:
     aeId:
       type: string
@@ -181,10 +259,13 @@ AeDetail:
       allOf:
         - $ref: '#/Lock'
       nullable: true
-      description: null = nobody is editing
+      description: null = nobody is editing. Set = show "Currently being modified by <name>".
     canEdit:
       type: boolean
       description: true only when the caller is an owner AND holds the lock
+    recommendationCount:
+      type: integer
+      description: Total across all 11 types
     modifiedOn:
       type: string
       format: date-time
@@ -202,21 +283,23 @@ AttributeChange:
   properties:
     attributeId:
       type: string
-      example: APP-512
+      description: Must be an attribute without children
+      example: LE-UK-01
     attributeType:
       $ref: '#/AttributeType'
     comment:
       type: string
       maxLength: 1000
       description: Why it is tagged. Required for attributes that are not tagged yet.
-      example: Added from recommendation - used for pricing
+      example: UK booking entity for this fund
 
 AttributesUpdateRequest:
   type: object
   description: |
     The COMPLETE list of attributes that should be tagged after Update, across all 11 types.
     Attributes not in the list are removed (stored as INACTIVE). New ones are stored as ACTIVE.
-    Name and description are not sent: the server takes them from the attribute itself.
+    Every item must be an attribute without children. Name, description and parent are not sent:
+    the server takes them from the attribute itself.
   required: [attributes]
   properties:
     attributes:

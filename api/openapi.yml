@@ -1,27 +1,34 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan API Spec
-  version: 5.0.0
+  version: 6.0.0
   description: |
     Open API specification for myAuditPlan (mAP) - Attribute Tagging.
 
     ## The screen in one paragraph
     The user lands on Attribute Tagging and sees the Auditable Entities (AEs) they own: the
     AE Owner filter starts preselected with them. They change the dropdown filters to find other
-    AEs. Opening an AE shows its 11 attribute types, each with three lists: what is tagged now,
-    what is recommended, and what else is available. An owner clicks Edit to lock the AE, adds
-    or removes attributes in the browser, and clicks Update to save the whole list. Everyone sees
-    the recommendations; after each Update the backend re-runs the recommendation rules.
+    AEs. Opening an AE shows its 11 attribute types (Est, Risks, Key Legal Entities, Key Regulations,
+    Key Third Parties, Key Applications, Key Models, Archer Risk Units, General Ledger / Cost Centers,
+    Locations, Products), each with what is tagged now and what is recommended; in edit mode also
+    All Available. An owner clicks Edit to lock the AE, adds or removes attributes in the browser,
+    and clicks Update to save the whole list. Everyone sees the recommendations; after each Update
+    the backend re-runs the recommendation rules.
+
+    Some types are hierarchies. Only an attribute without children can be tagged: adding one that
+    has children opens the Required Dependency dialog, where the user picks at least one child,
+    level by level, until every pick has no children.
 
     ## APIs
     | # | API | Used for |
     |---|---|---|
     | 1 | `GET /attribute-tagging/filters` | Every dropdown and all its values |
     | 2 | `POST /attribute-tagging/aes/search` | The AE list for the selected filters |
-    | 3 | `GET /attribute-tagging/aes/{aeId}` | One AE: tagged, recommended and available attributes |
+    | 3 | `GET /attribute-tagging/aes/{aeId}` | One AE: tagged and recommended, per attribute type |
     | 4 | `POST` / `DELETE /attribute-tagging/aes/{aeId}/lock` | Take or release the edit lock |
     | 5 | `PUT /attribute-tagging/aes/{aeId}/attributes` | Update: save the full list of tagged attributes |
-    | 6 | `GET` / `POST` / `DELETE /attribute-tagging/saved-filters` | Up to 3 saved filters per user |
+    | 6 | `GET /attribute-tagging/attribute-types/{type}/attributes` (+ `/{attributeId}/children`) | All Available, and the Required Dependency dialog |
+    | 7 | `GET` / `POST` / `DELETE /attribute-tagging/saved-filters` | Up to 3 saved filters per user |
 
     ## Who is the caller
     - For now the UI sends the user's id in the `X-User-Id` header on every call. The user picks
@@ -41,7 +48,14 @@ info:
     - Update keeps the lock, so the user can save more than once. Done, Cancel or opening another
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
-    ## Filters
+    ## Filters (the same pattern on every screen)
+    Every screen has `GET /<screen>/filters` (its dropdowns, as `{ key, label, options: [{ id, name }] }`),
+    `POST /<screen>/aes/search` with `{ filters: { <key>: [ids] } }`, and `/<screen>/saved-filters`.
+    The shapes live in `common/`; only the list of dropdowns differs per screen.
+
+    Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
+    and Division come from the AE table; the other 11 are the attribute types, each from its own
+    table, and find the AEs that have the picked values tagged.
     Values inside one filter are OR'ed; different filters are AND'ed. There is no free-text search:
     typing inside a dropdown only narrows that dropdown's options, in the browser.
   license:
@@ -54,8 +68,16 @@ security:
   - bearerAuth: []
 
 tags:
-  - name: AttributeTagging
-    description: Attribute Tagging screen
+  - name: AttributeTaggingFilters
+    description: Filter dropdowns (API 1)
+  - name: AttributeTaggingAes
+    description: AE list and AE detail (API 2, 3)
+  - name: AttributeTaggingLock
+    description: Edit lock (API 4)
+  - name: AttributeTaggingTags
+    description: Update tags, All Available and children (API 5, 6)
+  - name: AttributeTaggingSavedFilters
+    description: Saved filters (API 7)
 
 paths:
   /attribute-tagging/filters:
@@ -68,6 +90,10 @@ paths:
     $ref: './attribute-tagging/paths.yml#/aeLock'
   /attribute-tagging/aes/{aeId}/attributes:
     $ref: './attribute-tagging/paths.yml#/aeAttributes'
+  /attribute-tagging/attribute-types/{type}/attributes:
+    $ref: './attribute-tagging/paths.yml#/attributesByType'
+  /attribute-tagging/attribute-types/{type}/attributes/{attributeId}/children:
+    $ref: './attribute-tagging/paths.yml#/attributeChildren'
   /attribute-tagging/saved-filters:
     $ref: './attribute-tagging/paths.yml#/savedFilters'
   /attribute-tagging/saved-filters/{id}:
