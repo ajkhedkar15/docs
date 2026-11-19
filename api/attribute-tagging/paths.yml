@@ -21,23 +21,23 @@ filters:
               - key: aeOwner
                 label: AE Owner
                 options:
-                  - value: '12345'
-                    label: John Smith
+                  - id: '12345'
+                    name: John Smith
               - key: aeId
                 label: AE ID
                 options:
-                  - value: '000000004561'
-                    label: '000000004561'
+                  - id: '000000004561'
+                    name: '000000004561'
               - key: est
                 label: EST
                 options:
-                  - value: EST-0042
-                    label: Fund Accounting
+                  - id: EST-0042
+                    name: Fund Accounting
               - key: legalEntity
                 label: Key Legal Entities
                 options:
-                  - value: LE-UK-01
-                    label: Example Bank UK Ltd
+                  - id: LE-UK-01
+                    name: Example Bank UK Ltd
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
 

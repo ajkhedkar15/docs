@@ -35,7 +35,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 - Keep this in `src/auth/` so it can be swapped for JWT later.
 
 ## Filter bar and list
-- Draw the dropdowns from API 1, in its order. Show each option's `label`; send its `value` (AE ids for AE ID / AE Name, user ids for AE Owner).
+- Draw the dropdowns from API 1, in its order. Show each option's `name`; send its `id` (AE ids for AE ID / AE Name, user ids for AE Owner).
 - **Typing in a dropdown only narrows its options in the browser** (for example typing "2000" in AE ID shows 2000, 20001, 20002…). There is no search API.
 - Every dropdown can have thousands of options (AE ID, AE Name, and 2,000+ per attribute type): always use a virtualized list.
 - Filter state = `{ <key>: [values] }`, exactly the API's `filters`. Initial state: `{ aeOwner: [<my id>] }`. Keep it in the URL query string.

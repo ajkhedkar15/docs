@@ -89,23 +89,23 @@ paths:
                 - key: aeOwner
                   label: AE Owner
                   options:
-                    - value: '12345'
-                      label: John Smith
+                    - id: '12345'
+                      name: John Smith
                 - key: aeId
                   label: AE ID
                   options:
-                    - value: '000000004561'
-                      label: '000000004561'
+                    - id: '000000004561'
+                      name: '000000004561'
                 - key: est
                   label: EST
                   options:
-                    - value: EST-0042
-                      label: Fund Accounting
+                    - id: EST-0042
+                      name: Fund Accounting
                 - key: legalEntity
                   label: Key Legal Entities
                   options:
-                    - value: LE-UK-01
-                      label: Example Bank UK Ltd
+                    - id: LE-UK-01
+                      name: Example Bank UK Ltd
         '401':
           $ref: '#/components/responses/Unauthorized'
   /attribute-tagging/aes/search:
@@ -551,16 +551,18 @@ components:
         - product
     Option:
       type: object
-      description: One value in a dropdown
+      description: |
+        One value in a dropdown. id is what is sent back in filters; name is what is shown.
+        When there is no separate id (AE ID, Business Area, Division) both are the same text.
       required:
-        - value
-        - label
+        - id
+        - name
       properties:
-        value:
+        id:
           type: string
-          description: Sent back in filters. For aeId and aeName it is the AE id; for aeOwner the user id.
+          description: AE id for AE ID and AE Name, user id for AE Owner, attribute id for attribute types
           example: LE-UK-01
-        label:
+        name:
           type: string
           description: Shown in the dropdown and in the chip
           example: Example Bank UK Ltd
@@ -603,7 +605,7 @@ components:
     Filters:
       type: object
       description: |
-        Selected dropdown values, by filter key. Values inside one filter are OR'ed;
+        Selected option ids, by filter key. Values inside one filter are OR'ed;
         different filters are AND'ed. {} = no filter = all AEs.
       additionalProperties:
         type: array

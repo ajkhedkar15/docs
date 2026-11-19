@@ -12,14 +12,16 @@ Person:
 
 Option:
   type: object
-  description: One value in a dropdown
-  required: [value, label]
+  description: |
+    One value in a dropdown. id is what is sent back in filters; name is what is shown.
+    When there is no separate id (AE ID, Business Area, Division) both are the same text.
+  required: [id, name]
   properties:
-    value:
+    id:
       type: string
-      description: Sent back in filters. For aeId and aeName it is the AE id; for aeOwner the user id.
+      description: AE id for AE ID and AE Name, user id for AE Owner, attribute id for attribute types
       example: LE-UK-01
-    label:
+    name:
       type: string
       description: Shown in the dropdown and in the chip
       example: Example Bank UK Ltd
@@ -69,7 +71,7 @@ Filter:
 Filters:
   type: object
   description: |
-    Selected dropdown values, by filter key. Values inside one filter are OR'ed;
+    Selected option ids, by filter key. Values inside one filter are OR'ed;
     different filters are AND'ed. {} = no filter = all AEs.
   additionalProperties:
     type: array
