@@ -8,7 +8,7 @@ The Spring Boot REST API behind the **Attribute Tagging** screen of myAuditPlan.
 - Use the libraries already in `pom.xml`. Do not add a dependency without saying why.
 
 ## The API spec is the contract
-- Source: `api/openapi.yml` (split into `api/common` and `api/attribute-tagging`). Generate from the bundled `api/dist/openapi.bundled.yml` with openapi-generator (settings under **Backend design**) and implement the generated interfaces.
+- Source: `api/openapi.yml`, one file. Generate from it with openapi-generator (settings under **Backend design**) and implement the generated interfaces.
 - **If code and spec disagree, the spec wins.** Never add, rename or change an endpoint or field in code alone; change the spec first, in the same PR.
 
 ## The APIs (all under `/api/v1/attribute-tagging`)
@@ -54,14 +54,14 @@ com.map
 - Screen-specific classes are prefixed with the screen (`AttributeTagging…`); shared ones are not (`FilterService`, `LockService`, `SavedFilterService`, `CurrentUser`).
 
 ### Code generation (pom.xml)
-Generate from the bundled spec. Each spec **tag** becomes one interface in `com.map.api`. Each screen has **one tag**, so one interface and one controller per screen: `AttributeTagging` → `AttributeTaggingApi` → `AttributeTaggingController`.
+Generate from `api/openapi.yml`. Each spec **tag** becomes one interface in `com.map.api`. Each screen has **one tag**, so one interface and one controller per screen: `AttributeTagging` → `AttributeTaggingApi` → `AttributeTaggingController`.
 ```xml
 <plugin>
   <groupId>org.openapitools</groupId>
   <artifactId>openapi-generator-maven-plugin</artifactId>
   <executions><execution><goals><goal>generate</goal></goals>
     <configuration>
-      <inputSpec>${project.basedir}/api/dist/openapi.bundled.yml</inputSpec>
+      <inputSpec>${project.basedir}/api/openapi.yml</inputSpec>
       <generatorName>spring</generatorName>
       <apiPackage>com.map.api</apiPackage>
       <modelPackage>com.map.dto</modelPackage>

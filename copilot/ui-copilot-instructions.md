@@ -13,7 +13,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 - Use the component library, router and styling already in `package.json`. Do not add a new UI library.
 
 ## The API spec is the contract
-- Generate types with `openapi-typescript` from the bundled spec (`api/dist/openapi.bundled.yml`) into `src/api/generated.ts`. **Never hand-write API types** or edit the generated file.
+- Generate types with `openapi-typescript` from the spec (`api/openapi.yml`) into `src/api/generated.ts`. **Never hand-write API types** or edit the generated file.
 - Call only the endpoints in the spec. If something is missing, flag that the spec needs changing.
 - All calls go through one API client in `src/api/` that adds the `X-User-Id` header (later the bearer token) and parses ProblemDetail errors.
 
