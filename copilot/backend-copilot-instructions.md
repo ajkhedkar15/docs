@@ -46,6 +46,13 @@ com.map
 - **Later:** `JwtCurrentUser` reads the token. Only the `CurrentUser` implementation changes.
 - Get the caller **only** through the `CurrentUser` interface. Never accept the user as a query parameter or body field.
 
+## Filters are screen-based (reuse for new screens)
+- The filter APIs and shapes are the same on every screen; only the list of dropdowns changes. Build them once, generically:
+  - a `FilterDefinition` per dropdown: `key`, `label`, and its source (an AE-table column, or an attribute type's table);
+  - a `ScreenFilters` bean per screen listing its `FilterDefinition`s in screen order;
+  - one `FilterService` that builds the `/filters` response (cached per screen) and turns `{ filters }` into a JPA `Specification` from those definitions.
+- A new screen adds its `ScreenFilters` and card mapping; it never copies the filter code.
+
 ## Filtering (API 1 and 2)
 - Filters (16, every one a plain list): `aeId`, `aeName`, `aeOwner` (preselected by the UI), `businessArea`, `businessDivision` from the **AE table**, plus one per attribute type (`est`, `risk`, `legalEntity`, `regulation`, `thirdParty`, `application`, `model`, `archerRiskUnit`, `costCenter`, `location`, `product`) from **that type's table**. Unknown key → 400.
 - `filters` is a map of filter key → selected values. **OR within a key, AND across keys.**

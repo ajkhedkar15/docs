@@ -44,6 +44,22 @@ OpenAPI 3.0 specification for the Attribute Tagging screen.
 - **Filters:** every dropdown is a plain list. AE ID, AE Name, AE Owner (preselected), Business Area and Division come from the AE table; one dropdown per attribute type (11) comes from that type's table and finds AEs with the picked values tagged. OR within a dropdown, AND across dropdowns. `{}` = all AEs.
 - **Saved filters:** at most 3 per user; a 4th returns 409.
 
+## The filter pattern (reuse it for every new screen)
+
+Filters are screen-based: a new screen keeps the same APIs and shapes and only defines its own dropdowns.
+
+| Part | Same on every screen | Per screen |
+|---|---|---|
+| `GET /<screen>/filters` | Response: `[{ key, label, options: [{ id, name }] }]`, plain lists, cached | Which dropdowns, their labels and where their values come from |
+| `POST /<screen>/aes/search` | Body `{ filters: { <key>: [ids] } }`; OR within a key, AND across keys; `{}` = everything; unknown key → 400; paged `{ page, pageSize, totalRecords, totalPages, items }` | What a card shows (`items`) |
+| `/<screen>/saved-filters` | `GET` / `POST { name, filters }` / `DELETE`; max 3 per user | — |
+| Option | `id` is sent back, `name` is shown; same text when there's no separate id | — |
+| Typing in a dropdown | Narrows the options in the browser; no search API | — |
+
+Shared shapes are in `common/schemas.yml` (`Filter`, `Option`, `Filters`, `PageMeta`). A screen adds its own `FilterKey` enum and a `Filter` that uses it, like `attribute-tagging/schemas.yml`.
+
+**Adding a screen:** create `api/<screen>/paths.yml` and `schemas.yml`, copy the `filters`, `aesSearch` and `savedFilters` paths from Attribute Tagging, change the `FilterKey` list and the card, add the paths and a tag to `openapi.yml`, then lint and bundle.
+
 ## Working on the spec
 
 ```bash

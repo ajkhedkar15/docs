@@ -48,7 +48,11 @@ info:
     - Update keeps the lock, so the user can save more than once. Done, Cancel or opening another
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
-    ## Filters
+    ## Filters (the same pattern on every screen)
+    Every screen has `GET /<screen>/filters` (its dropdowns, as `{ key, label, options: [{ id, name }] }`),
+    `POST /<screen>/aes/search` with `{ filters: { <key>: [ids] } }`, and `/<screen>/saved-filters`.
+    The shapes live in `common/`; only the list of dropdowns differs per screen.
+
     Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
     and Division come from the AE table; the other 11 are the attribute types, each from its own
     table, and find the AEs that have the picked values tagged.

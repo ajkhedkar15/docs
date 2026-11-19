@@ -48,7 +48,11 @@ info:
     - Update keeps the lock, so the user can save more than once. Done, Cancel or opening another
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
-    ## Filters
+    ## Filters (the same pattern on every screen)
+    Every screen has `GET /<screen>/filters` (its dropdowns, as `{ key, label, options: [{ id, name }] }`),
+    `POST /<screen>/aes/search` with `{ filters: { <key>: [ids] } }`, and `/<screen>/saved-filters`.
+    The shapes live in `common/`; only the list of dropdowns differs per screen.
+
     Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
     and Division come from the AE table; the other 11 are the attribute types, each from its own
     table, and find the AEs that have the picked values tagged.
@@ -84,7 +88,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Filter'
+                  $ref: '#/components/schemas/Filter-2'
               example:
                 - key: aeOwner
                   label: AE Owner
@@ -523,10 +527,49 @@ components:
       bearerFormat: JWT
       description: Planned. The token carries the user id.
   schemas:
+    Option:
+      type: object
+      description: |
+        One value in a dropdown. id is what is sent back in filters; name is what is shown.
+        When there is no separate id (AE ID, Business Area, Division) both are the same text.
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          description: AE id for AE ID and AE Name, user id for AE Owner, attribute id for attribute types
+          example: LE-UK-01
+        name:
+          type: string
+          description: Shown in the dropdown and in the chip
+          example: Example Bank UK Ltd
+    Filter:
+      type: object
+      description: |
+        One dropdown. The same shape on every screen; each screen defines its own list of dropdowns
+        (keys) in its own folder.
+      required:
+        - key
+        - label
+        - options
+      properties:
+        key:
+          type: string
+          description: The screen's filter key. Used as the key in Filters.
+          example: legalEntity
+        label:
+          type: string
+          example: Key Legal Entities
+        options:
+          type: array
+          description: Every value, as a plain list
+          items:
+            $ref: '#/components/schemas/Option'
     FilterKey:
       type: string
       description: |
-        The dropdowns on the screen, in screen order. Every dropdown is a plain list (no levels).
+        Attribute Tagging's dropdowns, in screen order. Every dropdown is a plain list (no levels).
         - aeId, aeName, aeOwner, businessArea, businessDivision - from the AE table.
           AE Owner is preselected with the logged-in user.
         - est, risk, legalEntity, regulation, thirdParty, application, model, archerRiskUnit,
@@ -549,40 +592,14 @@ components:
         - costCenter
         - location
         - product
-    Option:
-      type: object
-      description: |
-        One value in a dropdown. id is what is sent back in filters; name is what is shown.
-        When there is no separate id (AE ID, Business Area, Division) both are the same text.
-      required:
-        - id
-        - name
-      properties:
-        id:
-          type: string
-          description: AE id for AE ID and AE Name, user id for AE Owner, attribute id for attribute types
-          example: LE-UK-01
-        name:
-          type: string
-          description: Shown in the dropdown and in the chip
-          example: Example Bank UK Ltd
-    Filter:
-      type: object
-      required:
-        - key
-        - label
-        - options
-      properties:
-        key:
-          $ref: '#/components/schemas/FilterKey'
-        label:
-          type: string
-          example: Key Legal Entities
-        options:
-          type: array
-          description: Every value across all AEs, as a plain list
-          items:
-            $ref: '#/components/schemas/Option'
+    Filter-2:
+      description: One Attribute Tagging dropdown (the common Filter, with this screen's keys)
+      allOf:
+        - $ref: '#/components/schemas/Filter'
+        - type: object
+          properties:
+            key:
+              $ref: '#/components/schemas/FilterKey'
     ErrorResponse:
       type: object
       description: RFC 7807 problem detail (Spring ProblemDetail)
@@ -605,8 +622,9 @@ components:
     Filters:
       type: object
       description: |
-        Selected option ids, by filter key. Values inside one filter are OR'ed;
-        different filters are AND'ed. {} = no filter = all AEs.
+        Selected option ids, by filter key. The same on every screen: values inside one filter are
+        OR'ed; different filters are AND'ed. {} = no filter = everything. A key the screen doesn't
+        have returns 400.
       additionalProperties:
         type: array
         items:

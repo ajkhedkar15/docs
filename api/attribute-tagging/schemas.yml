@@ -64,6 +64,42 @@ AePage:
           items:
             $ref: '#/AeCard'
 
+FilterKey:
+  type: string
+  description: |
+    Attribute Tagging's dropdowns, in screen order. Every dropdown is a plain list (no levels).
+    - aeId, aeName, aeOwner, businessArea, businessDivision - from the AE table.
+      AE Owner is preselected with the logged-in user.
+    - est, risk, legalEntity, regulation, thirdParty, application, model, archerRiskUnit,
+      costCenter, location, product - the 11 attribute types, each from its own table.
+      Options = every taggable value of that type; picking one finds the AEs that have it tagged.
+  enum:
+    - aeId
+    - aeName
+    - aeOwner
+    - est
+    - risk
+    - legalEntity
+    - regulation
+    - thirdParty
+    - application
+    - businessArea
+    - businessDivision
+    - model
+    - archerRiskUnit
+    - costCenter
+    - location
+    - product
+
+Filter:
+  description: One Attribute Tagging dropdown (the common Filter, with this screen's keys)
+  allOf:
+    - $ref: '../common/schemas.yml#/Filter'
+    - type: object
+      properties:
+        key:
+          $ref: '#/FilterKey'
+
 AttributeType:
   type: string
   description: |

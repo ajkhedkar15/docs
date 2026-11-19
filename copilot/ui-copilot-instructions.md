@@ -43,6 +43,10 @@ The **Attribute Tagging** screen of myAuditPlan:
 - Cards: AE name, AE ID, business area, last modified, "N Recommendations", description. `isOwner` → Edit option; otherwise View.
 - Paging from API 2 (`page`, `totalPages`).
 
+## Reuse for new screens
+- The filter bar, chips, saved filters and the `filters` state are the same on every screen: build them once as a shared `FilterBar` component that takes the screen name and calls `/<screen>/filters`, `/<screen>/aes/search` and `/<screen>/saved-filters`.
+- A new screen only supplies its card and detail; it never copies the filter code.
+
 ## Saved filters
 - API 7 `GET` fills the Saved Filters dropdown; choosing one loads its `filters` and runs API 2.
 - "Add to Saved Filters" → `POST { name, filters }`. On 409 show the message (max 3) and offer to delete one.
