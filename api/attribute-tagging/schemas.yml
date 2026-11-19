@@ -1,18 +1,59 @@
-AttributeTaggingCard:
-  description: One AE card on the Attribute Tagging screen
-  allOf:
-    - $ref: '../common/schemas.yml#/AeSummary'
-    - type: object
-      required: [recommendationCount, filterValues]
-      properties:
-        recommendationCount:
-          type: integer
-          description: Shown as "N Recommendations"
-          example: 4
-        filterValues:
-          $ref: '../common/schemas.yml#/FilterValues'
+Lock:
+  type: object
+  description: Who holds the edit lock, and until when
+  required: [lockedBy, lockedOn, expiresAt]
+  properties:
+    lockedBy:
+      $ref: '../common/schemas.yml#/Person'
+    lockedOn:
+      type: string
+      format: date-time
+      example: '2026-11-19T12:02:00Z'
+    expiresAt:
+      type: string
+      format: date-time
+      description: 15 minutes after the last activity (lock taken or renewed, or Update)
+      example: '2026-11-19T12:17:00Z'
 
-AttributeTaggingPage:
+AeCard:
+  type: object
+  description: One AE card in the list
+  required: [aeId, aeName, isOwner, recommendationCount]
+  properties:
+    aeId:
+      type: string
+      example: '000000004561'
+    aeName:
+      type: string
+      example: State Street IM Systematic Equity
+    aeDescription:
+      type: string
+      nullable: true
+      example: Performs fund accounting services
+    businessArea:
+      type: string
+      nullable: true
+      example: Corporate Divisions - Enterprise Risk Management
+    modifiedOn:
+      type: string
+      format: date-time
+      example: '2026-10-11T14:21:00Z'
+    recommendationCount:
+      type: integer
+      description: Shown as "N Recommendations" to everyone (owners and viewers)
+      example: 4
+    isOwner:
+      type: boolean
+      description: true = show the Edit option; false = View only
+      example: true
+    lockedBy:
+      type: object
+      allOf:
+        - $ref: '../common/schemas.yml#/Person'
+      nullable: true
+      description: Set when another owner is editing this AE right now
+
+AePage:
   allOf:
     - $ref: '../common/schemas.yml#/PageMeta'
     - type: object
@@ -21,73 +62,190 @@ AttributeTaggingPage:
         items:
           type: array
           items:
-            $ref: '#/AttributeTaggingCard'
+            $ref: '#/AeCard'
 
-AttributeTaggingDetail:
-  description: Everything the detail page shows for one AE
+AttributeType:
+  type: string
+  description: |
+    One of the 11 attribute types, for example keyApplication, keyModel, keyThirdParty,
+    keyLegalEntity, risk, archerRiskUnit, costCenter, location, product.
+  example: keyApplication
+
+Attribute:
+  type: object
+  required: [attributeId, attributeType, name]
+  properties:
+    attributeId:
+      type: string
+      example: APP-310
+    attributeType:
+      $ref: '#/AttributeType'
+    name:
+      type: string
+      example: NAV Calculator
+    description:
+      type: string
+      nullable: true
+      example: Calculates daily net asset value
+
+TaggedAttribute:
+  description: An attribute tagged to the AE now (status ACTIVE)
   allOf:
-    - $ref: '../common/schemas.yml#/AeSummary'
+    - $ref: '#/Attribute'
     - type: object
-      required: [recommendationCount, attributes, version]
+      required: [status]
       properties:
-        recommendationCount:
-          type: integer
-          example: 4
-        attributes:
-          $ref: '../common/schemas.yml#/LabelledValues'
-        version:
-          type: integer
-          description: Send back in TagUpdateRequest to detect concurrent edits
-          example: 7
+        comment:
+          type: string
+          nullable: true
+          description: Why it was tagged
+          example: Core ledger for this fund
+        status:
+          type: string
+          enum: [ACTIVE]
+        taggedBy:
+          $ref: '../common/schemas.yml#/Person'
+        taggedOn:
+          type: string
+          format: date-time
+          example: '2026-10-11T14:21:00Z'
 
-TagUpdateRequest:
+RecommendedAttribute:
+  description: |
+    An attribute the recommendation rules suggest, not tagged yet. Everyone sees recommendations;
+    only the owner holding the lock can add one. The rules run again after every Update, because
+    a newly tagged attribute can change what is recommended.
+  allOf:
+    - $ref: '#/Attribute'
+    - type: object
+      properties:
+        reason:
+          type: string
+          description: Why the rules recommend it
+          example: Used by 3 AEs in the same business area
+
+AttributeTypeGroup:
   type: object
   description: |
-    Replaces the AE's Application, Model and Third Party tags with these lists of codes.
-    Choices come from /lookups/keyApplication, /lookups/keyModel and /lookups/keyThirdParty.
-  required: [keyApplication, keyModel, keyThirdParty, version]
+    One attribute type with its three lists. Each attribute appears in only one list:
+    available = every attribute of this type that is neither tagged nor recommended.
+  required: [type, label, tagged, recommended, available]
   properties:
-    keyApplication:
-      type: array
-      items:
-        type: string
-      example: [APP-221, APP-310]
-    keyModel:
-      type: array
-      items:
-        type: string
-      example: [MDL-17]
-    keyThirdParty:
-      type: array
-      items:
-        type: string
-      example: [TP-0091]
-    version:
-      type: integer
-      description: The version read from the detail endpoint. If the AE has changed since, 409 is returned.
-      example: 7
-
-Recommendation:
-  type: object
-  description: Placeholder shape - align with the recommendations table
-  properties:
-    id:
-      type: integer
-      format: int64
-      example: 901
-    field:
-      type: string
-      description: Which tag list it is for
-      enum: [keyApplication, keyModel, keyThirdParty]
-    value:
-      type: string
-      example: APP-512
+    type:
+      $ref: '#/AttributeType'
     label:
       type: string
-      example: APP-512 Pricing Engine
-    reason:
+      example: Key Applications
+    tagged:
+      type: array
+      items:
+        $ref: '#/TaggedAttribute'
+    recommended:
+      type: array
+      items:
+        $ref: '#/RecommendedAttribute'
+    available:
+      type: array
+      items:
+        $ref: '#/Attribute'
+
+AeDetail:
+  type: object
+  description: One AE with all 11 attribute types
+  required: [aeId, aeName, aeOwners, isOwner, canEdit, attributeTypes]
+  properties:
+    aeId:
       type: string
-      example: Used by 3 AEs in the same business area
-    status:
+      example: '000000004561'
+    aeName:
       type: string
-      enum: [OPEN, ACCEPTED, REJECTED]
+      example: State Street IM Systematic Equity
+    aeDescription:
+      type: string
+      nullable: true
+    businessArea:
+      type: string
+      nullable: true
+    businessDivision:
+      type: string
+      nullable: true
+    aeOwners:
+      type: array
+      items:
+        $ref: '../common/schemas.yml#/Person'
+    isOwner:
+      type: boolean
+      description: The caller is one of the AE owners
+    lock:
+      type: object
+      allOf:
+        - $ref: '#/Lock'
+      nullable: true
+      description: null = nobody is editing
+    canEdit:
+      type: boolean
+      description: true only when the caller is an owner AND holds the lock
+    modifiedOn:
+      type: string
+      format: date-time
+    modifiedBy:
+      $ref: '../common/schemas.yml#/Person'
+    attributeTypes:
+      type: array
+      description: The 11 attribute types, in screen order
+      items:
+        $ref: '#/AttributeTypeGroup'
+
+AttributeChange:
+  type: object
+  required: [attributeId, attributeType]
+  properties:
+    attributeId:
+      type: string
+      example: APP-512
+    attributeType:
+      $ref: '#/AttributeType'
+    comment:
+      type: string
+      maxLength: 1000
+      description: Why it is tagged. Required for attributes that are not tagged yet.
+      example: Added from recommendation - used for pricing
+
+AttributesUpdateRequest:
+  type: object
+  description: |
+    The COMPLETE list of attributes that should be tagged after Update, across all 11 types.
+    Attributes not in the list are removed (stored as INACTIVE). New ones are stored as ACTIVE.
+    Name and description are not sent: the server takes them from the attribute itself.
+  required: [attributes]
+  properties:
+    attributes:
+      type: array
+      items:
+        $ref: '#/AttributeChange'
+
+SavedFilterRequest:
+  type: object
+  required: [name, filters]
+  properties:
+    name:
+      type: string
+      minLength: 1
+      maxLength: 50
+      example: UK entities
+    filters:
+      $ref: '../common/schemas.yml#/Filters'
+
+SavedFilter:
+  allOf:
+    - $ref: '#/SavedFilterRequest'
+    - type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 42
+        createdOn:
+          type: string
+          format: date-time

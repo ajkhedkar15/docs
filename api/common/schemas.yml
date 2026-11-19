@@ -1,158 +1,32 @@
-ScreenId:
-  type: string
-  description: Screen identifier. Add new screens here.
-  enum:
-    - attribute-tagging
-
-Option:
-  type: object
-  description: A value and its display text. Used for filter options, lookups and labelled attributes.
-  required: [value, label]
-  properties:
-    value:
-      type: string
-      description: Code or id. This is what is sent back to the API.
-      example: LE-UK-01
-    label:
-      type: string
-      description: Display text
-      example: Example Bank UK Ltd
-    count:
-      type: integer
-      description: Only in filter options - number of AEs (out of all AEs) with this value
-      example: 12
-
 Person:
   type: object
   required: [id, name]
   properties:
     id:
       type: string
-      description: Stable user id (used for ownership checks)
+      description: User id
       example: '12345'
     name:
       type: string
       example: John Smith
 
-CurrentUser:
-  allOf:
-    - $ref: '#/Person'
-    - type: object
-      required: [roles]
-      properties:
-        roles:
-          type: array
-          items:
-            type: string
-          example: [AE_USER]
-
-AeSummary:
+Option:
   type: object
-  description: Core AE fields shared by every screen. Each screen's card and detail extend this.
-  required: [aeId, aeName, aeOwners, canEdit]
+  description: One value in a dropdown
+  required: [value, label]
   properties:
-    aeId:
+    value:
       type: string
-      description: Keeps leading zeros
-      example: '000000004561'
-    aeName:
+      description: Sent back in filters. For aeId and aeName it is the AE id; for aeOwner the user id.
+      example: LE-UK-01
+    label:
       type: string
-      example: State Street IM Systematic Equity
-    aeDescription:
-      type: string
-      nullable: true
-      example: Performs fund accounting services
-    aeOwners:
-      type: array
-      items:
-        $ref: '#/Person'
-    businessArea:
-      type: string
-      nullable: true
-      description: Display text
-      example: Corporate Divisions - Enterprise Risk Management
-    businessDivision:
-      type: string
-      nullable: true
-      description: Display text
-      example: Corporate Divisions
-    canEdit:
-      type: boolean
-      description: true if the caller is an owner of this AE (or an admin). false means view only.
-      example: true
-    modifiedOn:
-      type: string
-      format: date-time
-      example: '2026-10-11T14:21:00Z'
-    modifiedBy:
-      type: string
-      example: map-system
-
-FilterValues:
-  type: object
-  description: |
-    The AE's value codes for every filter of the screen except aeId and aeName, keyed by filter key.
-    Always arrays, also for single-value fields (businessArea, est ...). A missing key means no value.
-    aeOwner holds the owners' user ids.
-    The browser filters with aeId, aeName and this map only, so every filter of the screen must be here.
-  additionalProperties:
-    type: array
-    items:
-      type: string
-  example:
-    aeOwner: ['12345']
-    est: [EST-01]
-    businessArea: [BA-ERM]
-    businessDivision: [BD-CORP]
-    auditTeam: [AT-ERM]
-    keyLegalEntity: [LE-UK-01]
-    keyApplication: [APP-221, APP-310]
-    keyModel: [MDL-17]
-    keyThirdParty: [TP-0091]
-    costCenter: [CC-4410]
-
-LabelledValues:
-  type: object
-  description: Same keys as FilterValues, with labels, for detail pages.
-  additionalProperties:
-    type: array
-    items:
-      $ref: '#/Option'
-  example:
-    keyLegalEntity:
-      - value: LE-UK-01
-        label: Example Bank UK Ltd
-    keyApplication:
-      - value: APP-221
-        label: APP-221 Fund Ledger
-
-PageMeta:
-  type: object
-  description: Every list response has these fields plus `items`.
-  required: [page, pageSize, totalRecords, totalPages, lastPage]
-  properties:
-    page:
-      type: integer
-      example: 1
-    pageSize:
-      type: integer
-      example: 1000
-    totalRecords:
-      type: integer
-      example: 156
-    totalPages:
-      type: integer
-      example: 1
-    lastPage:
-      type: boolean
-      description: true when there are no more pages; the browser can then filter locally
-      example: true
+      description: Shown in the dropdown and in the chip
+      example: Example Bank UK Ltd
 
 FilterKey:
   type: string
-  description: |
-    Catalog of every filter used across screens. Each screen accepts only its own subset
-    (a filter the screen doesn't offer returns 400). Also used as the lookup type.
+  description: The dropdowns on the screen
   enum:
     - aeId
     - aeName
@@ -171,40 +45,6 @@ FilterKey:
     - product
     - auditTeam
 
-Criterion:
-  type: object
-  description: For aeId and aeName the values are AE ids; for aeOwner they are user ids.
-  required: [field, values]
-  properties:
-    field:
-      $ref: '#/FilterKey'
-    operator:
-      type: string
-      enum: [INCLUDE, EXCLUDE]
-      default: INCLUDE
-    values:
-      type: array
-      minItems: 1
-      maxItems: 500
-      items:
-        type: string
-
-SearchRequest:
-  type: object
-  description: |
-    An empty body {} returns all AEs. The UI opens the screen with criteria aeOwner = [the user's id],
-    so the user first sees their own AEs.
-  properties:
-    searchText:
-      type: string
-      maxLength: 100
-      description: Case-insensitive contains match on aeId, aeName and aeDescription
-    criteria:
-      type: array
-      maxItems: 15
-      items:
-        $ref: '#/Criterion'
-
 Filter:
   type: object
   required: [key, label, options]
@@ -216,37 +56,39 @@ Filter:
       example: Key Legal Entities
     options:
       type: array
-      description: Every value across all AEs (the same for every user). For aeId and aeName, value = AE id; for aeOwner, value = user id.
+      description: Every value across all AEs
       items:
         $ref: '#/Option'
 
-SavedFilterRequest:
+Filters:
   type: object
-  required: [screen, name, search]
-  properties:
-    screen:
-      $ref: '#/ScreenId'
-    name:
+  description: |
+    Selected dropdown values, by filter key. Values inside one filter are OR'ed;
+    different filters are AND'ed. {} = no filter = all AEs.
+  additionalProperties:
+    type: array
+    items:
       type: string
-      minLength: 1
-      maxLength: 100
-      example: UK legal entities
-    search:
-      $ref: '#/SearchRequest'
+  example:
+    aeOwner: ['12345']
+    keyLegalEntity: [LE-UK-01, LE-US-02]
 
-SavedFilter:
-  allOf:
-    - $ref: '#/SavedFilterRequest'
-    - type: object
-      required: [id]
-      properties:
-        id:
-          type: integer
-          format: int64
-          example: 42
-        createdOn:
-          type: string
-          format: date-time
+PageMeta:
+  type: object
+  required: [page, pageSize, totalRecords, totalPages]
+  properties:
+    page:
+      type: integer
+      example: 1
+    pageSize:
+      type: integer
+      example: 20
+    totalRecords:
+      type: integer
+      example: 37
+    totalPages:
+      type: integer
+      example: 2
 
 ErrorResponse:
   type: object
