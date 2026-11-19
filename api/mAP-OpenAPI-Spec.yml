@@ -1,21 +1,30 @@
 openapi: '3.0.3'
 info:
   title: myAuditPlan API Spec
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Open API specification for myAuditPlan.
 
-    Access scope
-      - The caller is identified from the bearer token. Every endpoint returns only
-        Auditable Entities where the caller is one of the AE owners.
-      - Owner is NEVER passed as a request parameter.
-      - An AE outside the caller's scope returns 404.
+    View vs edit
+      - Every user can VIEW every Auditable Entity.
+      - Only an AE owner can EDIT it. The caller is identified from the bearer token;
+        owner is NEVER passed as a request parameter.
+      - Each AE in a response carries canEdit (computed by the server for the caller).
+        The UI shows other users' AEs read-only.
+      - Edit endpoints must re-check ownership and return 403 for non-owners.
+
+    scope parameter
+      - MINE (default): only AEs where the caller is an owner. Used when the screen opens.
+      - ALL: every AE. Used when the user switches to "All AEs" or searches beyond their own.
 
     Screen flow (Attribute Tagging)
-      1. GET  /auditable-entities/filters       -> dropdowns
-      2. GET  /auditable-entities?page=1..N      -> AE cards (load all pages, pageSize up to 1000)
-      3. Filter in the browser once lastPage=true; until then POST /auditable-entities/search
-      4. GET  /auditable-entities/{aeId}         -> AE details on click
+      1. GET  /auditable-entities/filters?scope=MINE   -> dropdowns
+      2. GET  /auditable-entities?scope=MINE&page=1    -> my AE cards (filter these in the browser)
+      3. User switches to All AEs:
+           GET /auditable-entities/filters?scope=ALL and
+           GET /auditable-entities?scope=ALL&page=1..N (about 2,500 AEs = 3 pages),
+           then filter in the browser; until lastPage=true use POST /auditable-entities/search
+      4. GET  /auditable-entities/{aeId}               -> AE details on click (canEdit decides read-only)
 servers:
   - url: https://myAuditPlan/api/v1
 
@@ -32,10 +41,11 @@ paths:
   /auditable-entities:
     get:
       tags: [AttributeTagging]
-      summary: Get Auditable Entities of the logged-in user
-      description: Returns all Auditable Entities owned by the authenticated user, page by page.
-      operationId: getMyAuditableEntities
+      summary: Get Auditable Entities (mine by default, or all)
+      description: Returns Auditable Entities page by page. scope=MINE returns the caller's own AEs; scope=ALL returns every AE.
+      operationId: getAuditableEntities
       parameters:
+        - $ref: '#/components/parameters/Scope'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Sort'
@@ -53,7 +63,7 @@ paths:
   /auditable-entities/search:
     post:
       tags: [AttributeTagging]
-      summary: Search and filter the user's Auditable Entities
+      summary: Search and filter Auditable Entities (mine or all)
       description: |
         Values inside one criterion are OR'ed; different criteria are AND'ed.
         operator EXCLUDE returns AEs having none of the values.
@@ -69,6 +79,7 @@ paths:
             schema:
               $ref: '#/components/schemas/SearchRequest'
             example:
+              scope: ALL
               searchText: fund
               criteria:
                 - field: aeName
@@ -92,8 +103,10 @@ paths:
     get:
       tags: [AttributeTagging]
       summary: Filter dropdowns and their options
-      description: Options are distinct values from the user's own Auditable Entities only.
+      description: Options are distinct values from the AEs in the chosen scope (the caller's own for MINE, every AE for ALL).
       operationId: getAuditableEntityFilters
+      parameters:
+        - $ref: '#/components/parameters/Scope'
       responses:
         '200':
           description: Filters in screen order
@@ -121,6 +134,7 @@ paths:
     get:
       tags: [AttributeTagging]
       summary: Get one Auditable Entity
+      description: Any user can view any AE. canEdit tells the UI whether to show it read-only.
       operationId: getAuditableEntity
       parameters:
         - $ref: '#/components/parameters/AeId'
@@ -244,6 +258,13 @@ components:
       bearerFormat: JWT
 
   parameters:
+    Scope:
+      name: scope
+      in: query
+      required: false
+      description: MINE = AEs where the caller is an owner; ALL = every AE
+      schema:
+        $ref: '#/components/schemas/Scope'
     AeId:
       name: aeId
       in: path
@@ -307,7 +328,7 @@ components:
 
     AuditableEntity:
       type: object
-      required: [aeId, aeName, aeOwner, recommendationCount, attributes]
+      required: [aeId, aeName, aeOwner, recommendationCount, canEdit, attributes]
       properties:
         aeId:
           type: string
@@ -334,6 +355,10 @@ components:
         recommendationCount:
           type: integer
           example: 12
+        canEdit:
+          type: boolean
+          description: true if the caller is an owner of this AE (or an admin). false means view only.
+          example: true
         attributes:
           type: object
           description: |
@@ -367,9 +392,16 @@ components:
           type: string
           example: John Smith
 
+    Scope:
+      type: string
+      enum: [MINE, ALL]
+      default: MINE
+
     SearchRequest:
       type: object
       properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
         searchText:
           type: string
           maxLength: 100
@@ -464,6 +496,8 @@ components:
       type: object
       required: [screen, name, criteria]
       properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
         screen:
           type: string
           enum: [attribute-tagging]
@@ -533,8 +567,18 @@ components:
             status: 401
             title: Unauthorized
             detail: Token is missing or expired
+    Forbidden:
+      description: The caller can view this AE but is not an owner, so cannot edit it (for edit endpoints)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 403
+            title: Forbidden
+            detail: Only an owner of Auditable Entity AE001 can edit it
     NotFound:
-      description: Not found or not owned by the user
+      description: Not found
       content:
         application/problem+json:
           schema:
