@@ -16,7 +16,7 @@ filters:
             schema:
               type: array
               items:
-                $ref: './schemas.yml#/Filter'
+                $ref: './schemas.yml#/AttributeTaggingFilter'
             example:
               - key: aeOwner
                 label: AE Owner
