@@ -8,7 +8,9 @@ info:
     ## The screen in one paragraph
     The user lands on Attribute Tagging and sees the Auditable Entities (AEs) they own: the
     AE Owner filter starts preselected with them. They change the dropdown filters to find other
-    AEs. Opening an AE shows its 11 attribute types, each with three lists: what is tagged now,
+    AEs. Opening an AE shows its 11 attribute types (EST / Business Function, Direct Legal Entity,
+    Relevant Legal Entity, Products, Risk Units, Risks, Standards, Assets, Third Parties, Models,
+    Location), each with three lists: what is tagged now,
     what is recommended, and what else is available. An owner clicks Edit to lock the AE, adds
     or removes attributes in the browser, and clicks Update to save the whole list. Everyone sees
     the recommendations; after each Update the backend re-runs the recommendation rules.

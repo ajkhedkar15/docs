@@ -67,9 +67,32 @@ AePage:
 AttributeType:
   type: string
   description: |
-    One of the 11 attribute types, for example keyApplication, keyModel, keyThirdParty,
-    keyLegalEntity, risk, archerRiskUnit, costCenter, location, product.
-  example: keyApplication
+    The 11 attribute types, in screen order:
+    - est - EST / Business Function. The primary recommendation driver: other attributes are
+      recommended from EST relationships.
+    - directLegalEntity - Direct Legal Entity associated to the AE
+    - relevantLegalEntity - related legal entities. Kept separate from Direct Legal Entity.
+    - product - Products (client services / products)
+    - riskUnit - Risk Units (risk organizations)
+    - risk - Risks (potential risks)
+    - standard - Standards (Regulations), regulatory obligations
+    - asset - Assets (Applications), technology systems
+    - thirdParty - Third Parties (external vendors)
+    - model - Models (business / risk models)
+    - location - Location (work locations)
+  enum:
+    - est
+    - directLegalEntity
+    - relevantLegalEntity
+    - product
+    - riskUnit
+    - risk
+    - standard
+    - asset
+    - thirdParty
+    - model
+    - location
+  example: asset
 
 Attribute:
   type: object
@@ -112,7 +135,8 @@ TaggedAttribute:
 
 RecommendedAttribute:
   description: |
-    An attribute the recommendation rules suggest, not tagged yet. Everyone sees recommendations;
+    An attribute the recommendation rules suggest, not tagged yet. The rules are driven mainly by
+    the AE's EST / Business Function. Everyone sees recommendations;
     only the owner holding the lock can add one. The rules run again after every Update, because
     a newly tagged attribute can change what is recommended.
   allOf:
@@ -135,7 +159,7 @@ AttributeTypeGroup:
       $ref: '#/AttributeType'
     label:
       type: string
-      example: Key Applications
+      example: Assets (Applications)
     tagged:
       type: array
       items:

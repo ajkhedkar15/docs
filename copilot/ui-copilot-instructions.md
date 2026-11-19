@@ -5,7 +5,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 
 1. The user lands on the screen and sees the **Auditable Entities (AEs) they own**: the AE Owner filter starts preselected with them.
 2. They pick values in the dropdown filters to find the AEs they want.
-3. They open an AE and see its **11 attribute types**, each with three lists: **tagged**, **recommended** and **available**.
+3. They open an AE and see its **11 attribute types** (EST / Business Function, Direct Legal Entity, Relevant Legal Entity, Products, Risk Units, Risks, Standards (Regulations), Assets (Applications), Third Parties, Models, Location), each with three lists: **tagged**, **recommended** and **available**. Show them in the order the API returns them, with the API's `label`.
 4. An owner clicks **Edit** (takes the edit lock), **adds** or **removes** attributes in the browser, and clicks **Update** to save. Everyone else sees the AE view-only.
 
 ## Tech stack

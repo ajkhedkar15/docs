@@ -26,20 +26,25 @@ Option:
 
 FilterKey:
   type: string
-  description: The dropdowns on the screen
+  description: |
+    The dropdowns on the screen, in screen order. Filters that are also attribute types use the
+    same key (est, risk, thirdParty, asset, model, riskUnit, location, product).
+    - aeId, aeName, aeOwner, businessArea, businessDivision, costCenter, auditTeam - fields of the AE
+    - legalEntity - matches the Direct OR the Relevant Legal Entity
+    - the rest - the AE's tagged attributes of that type
   enum:
+    - aeOwner
     - aeId
     - aeName
-    - aeOwner
     - est
     - risk
-    - keyLegalEntity
-    - keyThirdParty
-    - keyApplication
+    - legalEntity
+    - thirdParty
+    - asset
     - businessArea
     - businessDivision
-    - keyModel
-    - archerRiskUnit
+    - model
+    - riskUnit
     - costCenter
     - location
     - product
@@ -71,7 +76,7 @@ Filters:
       type: string
   example:
     aeOwner: ['12345']
-    keyLegalEntity: [LE-UK-01, LE-US-02]
+    legalEntity: [LE-UK-01, LE-US-02]
 
 PageMeta:
   type: object
