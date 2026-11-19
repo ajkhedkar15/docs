@@ -1,0 +1,26 @@
+name: API spec
+
+on:
+  pull_request:
+    paths: ['api/**', 'redocly.yaml', '.github/workflows/api-spec.yml']
+  push:
+    branches: [main]
+    paths: ['api/**', 'redocly.yaml']
+
+jobs:
+  lint-and-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Lint
+        run: npx -y @redocly/cli@2 lint map
+      - name: Bundle
+        run: npx -y @redocly/cli@2 bundle map -o api/dist/openapi.bundled.yml
+      - name: Check the committed bundle is up to date
+        run: |
+          git diff --exit-code api/dist/openapi.bundled.yml || {
+            echo "::error::api/dist/openapi.bundled.yml is out of date. Run: npx @redocly/cli bundle map -o api/dist/openapi.bundled.yml";
+            exit 1; }
