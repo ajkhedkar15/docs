@@ -10,7 +10,8 @@ info:
     AE Owner filter starts preselected with them. They change the dropdown filters to find other
     AEs. Opening an AE shows its 11 attribute types, each with three lists: what is tagged now,
     what is recommended, and what else is available. An owner clicks Edit to lock the AE, adds
-    or removes attributes in the browser, and clicks Update to save the whole list.
+    or removes attributes in the browser, and clicks Update to save the whole list. Everyone sees
+    the recommendations; after each Update the backend re-runs the recommendation rules.
 
     ## APIs
     | # | API | Used for |
@@ -165,7 +166,9 @@ paths:
       tags:
         - AttributeTagging
       summary: 3. One AE with tagged, recommended and available attributes
-      description: Anyone can view. canEdit is true only for the owner who holds the lock.
+      description: |
+        Anyone can view, including the recommendations. canEdit is true only for the owner who
+        holds the lock; everyone else sees the three lists read-only.
       operationId: getAe
       parameters:
         - $ref: '#/components/parameters/AeId'
@@ -283,6 +286,8 @@ paths:
         - Tagged now, missing from the list -> removed (stored as INACTIVE).
         - In the list and already tagged -> kept; a changed comment is saved.
         The caller must hold the lock (an expired lock that nobody else took is renewed).
+        After saving, the recommendation rules run again for this AE, because the new tags can
+        change what is recommended. The response therefore has fresh recommended and available lists.
         The lock is kept, so the user can update again.
       operationId: updateAeAttributes
       parameters:
@@ -306,7 +311,7 @@ paths:
                   comment: UK booking entity
       responses:
         '200':
-          description: Saved. Returns the AE as API 3 does, with the new lists.
+          description: Saved. Returns the AE as API 3 does, with the new tagged list and the recomputed recommended and available lists.
           content:
             application/json:
               schema:
@@ -558,7 +563,7 @@ components:
           example: '2026-10-11T14:21:00Z'
         recommendationCount:
           type: integer
-          description: Shown as "N Recommendations"
+          description: Shown as "N Recommendations" to everyone (owners and viewers)
           example: 4
         isOwner:
           type: boolean
@@ -603,8 +608,8 @@ components:
     AttributeType:
       type: string
       description: |
-        One of the 11 attribute types. Known so far - risk, keyLegalEntity, keyThirdParty,
-        keyApplication, keyModel, archerRiskUnit, costCenter, location, product (two more to confirm).
+        One of the 11 attribute types, for example keyApplication, keyModel, keyThirdParty,
+        keyLegalEntity, risk, archerRiskUnit, costCenter, location, product.
       example: keyApplication
     Attribute:
       type: object
@@ -649,7 +654,10 @@ components:
               format: date-time
               example: '2026-10-11T14:21:00Z'
     RecommendedAttribute:
-      description: An attribute the rules suggest, not tagged yet
+      description: |
+        An attribute the recommendation rules suggest, not tagged yet. Everyone sees recommendations;
+        only the owner holding the lock can add one. The rules run again after every Update, because
+        a newly tagged attribute can change what is recommended.
       allOf:
         - $ref: '#/components/schemas/Attribute'
         - type: object

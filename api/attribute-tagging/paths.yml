@@ -103,7 +103,9 @@ aeDetail:
   get:
     tags: [AttributeTagging]
     summary: 3. One AE with tagged, recommended and available attributes
-    description: Anyone can view. canEdit is true only for the owner who holds the lock.
+    description: |
+      Anyone can view, including the recommendations. canEdit is true only for the owner who
+      holds the lock; everyone else sees the three lists read-only.
     operationId: getAe
     parameters:
       - $ref: '../common/parameters.yml#/AeId'
@@ -220,6 +222,8 @@ aeAttributes:
       - Tagged now, missing from the list -> removed (stored as INACTIVE).
       - In the list and already tagged -> kept; a changed comment is saved.
       The caller must hold the lock (an expired lock that nobody else took is renewed).
+      After saving, the recommendation rules run again for this AE, because the new tags can
+      change what is recommended. The response therefore has fresh recommended and available lists.
       The lock is kept, so the user can update again.
     operationId: updateAeAttributes
     parameters:
@@ -243,7 +247,7 @@ aeAttributes:
                 comment: UK booking entity
     responses:
       '200':
-        description: Saved. Returns the AE as API 3 does, with the new lists.
+        description: Saved. Returns the AE as API 3 does, with the new tagged list and the recomputed recommended and available lists.
         content:
           application/json:
             schema:

@@ -47,7 +47,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 - "Add to Saved Filters" → `POST { name, filters }`. On 409 show the message (max 3) and offer to delete one.
 
 ## AE detail
-- API 3. For each of the 11 attribute types show three sections: **Tagged**, **Recommended** (with reason), **Available**.
+- API 3. For each of the 11 attribute types show three sections: **Tagged**, **Recommended** (with reason), **Available**. Everyone sees all three, including recommendations; only the owner in edit mode gets Add and Remove buttons.
 - `canEdit` false → everything read-only. If `isOwner` and `lock` is someone else's → "Being edited by <name>", Edit disabled. If `isOwner` and no lock → Edit enabled.
 - Never decide editability yourself from owners; use `isOwner`, `lock` and `canEdit` from the API.
 
@@ -56,7 +56,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 2. **Keep the lock alive:** while in edit mode, call API 4 `POST` every **5 minutes** if the user has interacted in the last 15 minutes. The server expires the lock after 15 minutes without activity.
 3. **Add** (from Recommended or Available): moves the attribute into Tagged **in the browser only**, highlighted **green**, with a required **comment** field ("why are you tagging this?").
 4. **Remove** (from Tagged): marks it removed in the browser (struck through, red), undo-able.
-5. **Update** → API 5 with the **complete** list of attributes that should be tagged across all 11 types: every kept, added and not-removed item as `{ attributeId, attributeType, comment }`. Block Update while any added item has no comment. On 200 replace the AE with the response (highlights cleared) and stay in edit mode.
+5. **Update** → API 5 with the **complete** list of attributes that should be tagged across all 11 types: every kept, added and not-removed item as `{ attributeId, attributeType, comment }`. Block Update while any added item has no comment. On 200 replace the AE with the response (highlights cleared) and stay in edit mode. The response has **recomputed recommendations**: the backend re-runs its rules after each save, so the Recommended and Available lists can change.
 6. **Done / Cancel** → API 4 `DELETE`, back to view mode. Cancel discards unsaved changes.
 7. **Opening another AE, leaving the screen or Switch user while in edit mode:** if there are unsaved changes, show a warning ("You have unsaved changes. Leaving releases your lock and discards them."). On confirm → API 4 `DELETE`, then continue. On tab close, call it with `fetch(..., { method: 'DELETE', keepalive: true })`; the 15-minute expiry covers anything that slips through.
 8. On 409 from API 5 (lock lost to another owner) → tell the user, reload the AE view-only; their unsaved changes can't be saved.

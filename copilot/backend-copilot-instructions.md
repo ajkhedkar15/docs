@@ -48,7 +48,7 @@ com.map
 ## AE detail (API 3)
 - 11 groups in screen order. Each attribute appears in **exactly one** list:
   - `tagged` = the AE's `ACTIVE` attributes (with comment, taggedBy, taggedOn),
-  - `recommended` = from the recommendation rules, minus tagged (with `reason`),
+  - `recommended` = from the recommendation rules, minus tagged (with `reason`). Shown to everyone, owners and viewers alike,
   - `available` = every attribute of that type that is neither tagged nor recommended.
 - `isOwner` = caller is one of the AE's owners. `canEdit` = `isOwner` **and** caller holds a non-expired lock.
 
@@ -67,7 +67,8 @@ com.map
   - missing from the list → set `INACTIVE` (keep the row for history);
   - present in both → keep; save a changed comment.
 - Validate every `attributeId` exists and belongs to the given `attributeType` → 400 otherwise. Name and description come from the attribute table, never from the request.
-- Update the AE's `modified_on` / `modified_by`, renew the lock (it stays held), evict the `/filters` cache, return the AE as API 3.
+- **Re-run the recommendation rules for this AE** after the attributes are saved (a newly tagged attribute can change what is recommended), and store the new recommendations and `recommendationCount`.
+- Update the AE's `modified_on` / `modified_by`, renew the lock (it stays held), evict the `/filters` cache, return the AE as API 3 (with the recomputed `recommended` and `available`).
 
 ## Saved filters (API 6)
 - Per user, **at most 3**. A 4th → **409** "You can save up to 3 filters". Duplicate name for the same user → 409.
@@ -83,7 +84,7 @@ com.map
 - Filters: OR within a key, AND across keys, `aeOwner`, unknown key → 400, empty result → 200.
 - Detail: each attribute in exactly one list; `canEdit` only for the owner holding the lock.
 - Lock: owner gets it; second owner → 409; non-owner → 403; expiry after 15 min; renew; concurrent take → only one wins; DELETE by non-holder is a no-op.
-- Update: add (comment required), remove (→ INACTIVE), keep, wrong type → 400, without lock → 409, non-owner → 403.
+- Update: add (comment required), remove (→ INACTIVE), keep, wrong type → 400, without lock → 409, non-owner → 403, recommendations recomputed after the save.
 - Saved filters: 4th → 409; can't delete another user's.
 
 ## Don't

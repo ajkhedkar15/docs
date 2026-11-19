@@ -38,6 +38,7 @@ OpenAPI 3.0 specification for the Attribute Tagging screen.
 - **Lock timeout:** 15 minutes without activity. API 4 `POST` and API 5 renew it; the UI renews every 5 minutes while the user is active in edit mode.
 - **Filters:** OR within a dropdown, AND across dropdowns. `{}` = all AEs.
 - **Saved filters:** at most 3 per user; a 4th returns 409.
+- **Recommendations:** everyone sees them (view only for non-owners). After every Update the backend re-runs the recommendation rules, and API 5 returns the fresh lists.
 
 ## Working on the spec
 

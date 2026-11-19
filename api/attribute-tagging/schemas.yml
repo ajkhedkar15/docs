@@ -40,7 +40,7 @@ AeCard:
       example: '2026-10-11T14:21:00Z'
     recommendationCount:
       type: integer
-      description: Shown as "N Recommendations"
+      description: Shown as "N Recommendations" to everyone (owners and viewers)
       example: 4
     isOwner:
       type: boolean
@@ -67,8 +67,8 @@ AePage:
 AttributeType:
   type: string
   description: |
-    One of the 11 attribute types. Known so far - risk, keyLegalEntity, keyThirdParty,
-    keyApplication, keyModel, archerRiskUnit, costCenter, location, product (two more to confirm).
+    One of the 11 attribute types, for example keyApplication, keyModel, keyThirdParty,
+    keyLegalEntity, risk, archerRiskUnit, costCenter, location, product.
   example: keyApplication
 
 Attribute:
@@ -111,7 +111,10 @@ TaggedAttribute:
           example: '2026-10-11T14:21:00Z'
 
 RecommendedAttribute:
-  description: An attribute the rules suggest, not tagged yet
+  description: |
+    An attribute the recommendation rules suggest, not tagged yet. Everyone sees recommendations;
+    only the owner holding the lock can add one. The rules run again after every Update, because
+    a newly tagged attribute can change what is recommended.
   allOf:
     - $ref: '#/Attribute'
     - type: object

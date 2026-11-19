@@ -10,7 +10,8 @@ info:
     AE Owner filter starts preselected with them. They change the dropdown filters to find other
     AEs. Opening an AE shows its 11 attribute types, each with three lists: what is tagged now,
     what is recommended, and what else is available. An owner clicks Edit to lock the AE, adds
-    or removes attributes in the browser, and clicks Update to save the whole list.
+    or removes attributes in the browser, and clicks Update to save the whole list. Everyone sees
+    the recommendations; after each Update the backend re-runs the recommendation rules.
 
     ## APIs
     | # | API | Used for |
