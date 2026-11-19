@@ -4,7 +4,7 @@
 The **Attribute Tagging** screen of myAuditPlan:
 
 1. The user lands on the screen and sees the **Auditable Entities (AEs) they own**: the AE Owner filter starts preselected with them.
-2. They pick values in the dropdown filters (AE ID, AE Name, AE Owner, Business Area, Division; each a plain list) or a saved filter.
+2. They pick values in the dropdown filters or a saved filter. Every dropdown is a plain list: AE ID, AE Name, AE Owner, Business Area, Division, plus one per attribute type (EST, Risks, Key Legal Entities…).
 3. They open an AE (it expands in the list) and see its **11 attribute type sections**: Est, Risks, Key Legal Entities, Key Regulations, Key Third Parties, Key Applications, Key Models, Archer Risk Units, General Ledger / Cost Centers, Locations, Products. Each shows its recommendation count; opened, it shows **Tagged to AE** and **Suggested to Add**, and in edit mode also **All Available**.
 4. An owner clicks **Edit** (takes the edit lock), **adds** or **removes** attributes in the browser, and clicks **Update** to save. Everyone else sees the AE view-only.
 
@@ -37,7 +37,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 ## Filter bar and list
 - Draw the dropdowns from API 1, in its order. Show each option's `label`; send its `value` (AE ids for AE ID / AE Name, user ids for AE Owner).
 - **Typing in a dropdown only narrows its options in the browser** (for example typing "2000" in AE ID shows 2000, 20001, 20002…). There is no search API.
-- Dropdowns with thousands of options (AE ID, AE Name) must use a virtualized list.
+- Every dropdown can have thousands of options (AE ID, AE Name, and 2,000+ per attribute type): always use a virtualized list.
 - Filter state = `{ <key>: [values] }`, exactly the API's `filters`. Initial state: `{ aeOwner: [<my id>] }`. Keep it in the URL query string.
 - Every change → API 2 with the new `filters`, page 1. Show chips for selected values; "Clear All Filters" → `{}` (all AEs).
 - Cards: AE name, AE ID, business area, last modified, "N Recommendations", description. `isOwner` → Edit option; otherwise View.

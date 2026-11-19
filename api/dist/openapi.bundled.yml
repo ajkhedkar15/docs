@@ -49,8 +49,9 @@ info:
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
     ## Filters
-    AE ID, AE Name, AE Owner (preselected), Business Area and Division - all from the AE table,
-    each a plain list of values.
+    Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
+    and Division come from the AE table; the other 11 are the attribute types, each from its own
+    table, and find the AEs that have the picked values tagged.
     Values inside one filter are OR'ed; different filters are AND'ed. There is no free-text search:
     typing inside a dropdown only narrows that dropdown's options, in the browser.
   license:
@@ -70,9 +71,10 @@ paths:
         - AttributeTagging
       summary: 1. All dropdowns and their values
       description: |
-        Every filter in screen order, each with every value found across all AEs.
-        The same for every user, so the server caches it. Typing in a dropdown narrows its options
-        in the browser; there is no search call. The "Who are you?" screen uses the aeOwner options.
+        Every filter in screen order, each a plain list of values. 5 come from the AE table; the
+        other 11 are the attribute types, each with every taggable value from that type's table
+        (2,000+ each). The same for every user, so the server caches it. Typing in a dropdown narrows
+        its options in the browser; there is no search call. The "Who are you?" screen uses the aeOwner options.
       operationId: getFilters
       responses:
         '200':
@@ -94,11 +96,16 @@ paths:
                   options:
                     - value: '000000004561'
                       label: '000000004561'
-                - key: businessArea
-                  label: Business Area
+                - key: est
+                  label: EST
                   options:
-                    - value: Corporate Divisions - Enterprise Risk Management
-                      label: Corporate Divisions - Enterprise Risk Management
+                    - value: EST-0042
+                      label: Fund Accounting
+                - key: legalEntity
+                  label: Key Legal Entities
+                  options:
+                    - value: LE-UK-01
+                      label: Example Bank UK Ltd
         '401':
           $ref: '#/components/responses/Unauthorized'
   /attribute-tagging/aes/search:
@@ -135,8 +142,11 @@ paths:
                   filters:
                     aeOwner:
                       - '12345'
-                    businessArea:
-                      - Corporate Divisions - Enterprise Risk Management
+                    est:
+                      - EST-0042
+                    legalEntity:
+                      - LE-UK-01
+                      - LE-US-02
                     businessDivision:
                       - Corporate Divisions
               allAes:
@@ -516,14 +526,29 @@ components:
     FilterKey:
       type: string
       description: |
-        The dropdowns on the screen, in screen order. All come from the AE table and are plain lists
-        (no parent/child levels). AE Owner is preselected with the logged-in user.
+        The dropdowns on the screen, in screen order. Every dropdown is a plain list (no levels).
+        - aeId, aeName, aeOwner, businessArea, businessDivision - from the AE table.
+          AE Owner is preselected with the logged-in user.
+        - est, risk, legalEntity, regulation, thirdParty, application, model, archerRiskUnit,
+          costCenter, location, product - the 11 attribute types, each from its own table.
+          Options = every taggable value of that type; picking one finds the AEs that have it tagged.
       enum:
         - aeId
         - aeName
         - aeOwner
+        - est
+        - risk
+        - legalEntity
+        - regulation
+        - thirdParty
+        - application
         - businessArea
         - businessDivision
+        - model
+        - archerRiskUnit
+        - costCenter
+        - location
+        - product
     Option:
       type: object
       description: One value in a dropdown
@@ -587,6 +612,9 @@ components:
       example:
         aeOwner:
           - '12345'
+        legalEntity:
+          - LE-UK-01
+          - LE-US-02
         businessArea:
           - Corporate Divisions - Enterprise Risk Management
     PageMeta:

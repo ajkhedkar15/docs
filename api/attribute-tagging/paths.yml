@@ -3,9 +3,10 @@ filters:
     tags: [AttributeTagging]
     summary: 1. All dropdowns and their values
     description: |
-      Every filter in screen order, each with every value found across all AEs.
-      The same for every user, so the server caches it. Typing in a dropdown narrows its options
-      in the browser; there is no search call. The "Who are you?" screen uses the aeOwner options.
+      Every filter in screen order, each a plain list of values. 5 come from the AE table; the
+      other 11 are the attribute types, each with every taggable value from that type's table
+      (2,000+ each). The same for every user, so the server caches it. Typing in a dropdown narrows
+      its options in the browser; there is no search call. The "Who are you?" screen uses the aeOwner options.
     operationId: getFilters
     responses:
       '200':
@@ -27,11 +28,16 @@ filters:
                 options:
                   - value: '000000004561'
                     label: '000000004561'
-              - key: businessArea
-                label: Business Area
+              - key: est
+                label: EST
                 options:
-                  - value: Corporate Divisions - Enterprise Risk Management
-                    label: Corporate Divisions - Enterprise Risk Management
+                  - value: EST-0042
+                    label: Fund Accounting
+              - key: legalEntity
+                label: Key Legal Entities
+                options:
+                  - value: LE-UK-01
+                    label: Example Bank UK Ltd
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
 
@@ -66,7 +72,8 @@ aesSearch:
               value:
                 filters:
                   aeOwner: ['12345']
-                  businessArea: [Corporate Divisions - Enterprise Risk Management]
+                  est: [EST-0042]
+                  legalEntity: [LE-UK-01, LE-US-02]
                   businessDivision: [Corporate Divisions]
             allAes:
               summary: No filters - all AEs

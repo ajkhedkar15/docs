@@ -49,8 +49,9 @@ info:
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
     ## Filters
-    AE ID, AE Name, AE Owner (preselected), Business Area and Division - all from the AE table,
-    each a plain list of values.
+    Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
+    and Division come from the AE table; the other 11 are the attribute types, each from its own
+    table, and find the AEs that have the picked values tagged.
     Values inside one filter are OR'ed; different filters are AND'ed. There is no free-text search:
     typing inside a dropdown only narrows that dropdown's options, in the browser.
   license:

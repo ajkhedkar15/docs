@@ -47,14 +47,15 @@ com.map
 - Get the caller **only** through the `CurrentUser` interface. Never accept the user as a query parameter or body field.
 
 ## Filtering (API 1 and 2)
-- Filters: `aeId`, `aeName`, `aeOwner` (preselected by the UI), `businessArea`, `businessDivision`. **All from the AE table**, each a plain list of distinct values. Unknown key → 400.
+- Filters (16, every one a plain list): `aeId`, `aeName`, `aeOwner` (preselected by the UI), `businessArea`, `businessDivision` from the **AE table**, plus one per attribute type (`est`, `risk`, `legalEntity`, `regulation`, `thirdParty`, `application`, `model`, `archerRiskUnit`, `costCenter`, `location`, `product`) from **that type's table**. Unknown key → 400.
 - `filters` is a map of filter key → selected values. **OR within a key, AND across keys.**
 - `aeId` and `aeName` values are AE ids; `aeOwner` values are user ids.
-- Every filter → `IN (...)` on the AE table's column. If an AE's owners are stored as several rows (an AE can have several owners), filter `aeOwner` with an `EXISTS` subquery, never a join (joins duplicate rows and break paging).
+- AE-table filters → `IN (...)` on the column. If an AE's owners are stored as several rows (an AE can have several owners), filter `aeOwner` with an `EXISTS` subquery.
+- Attribute-type filters → an **`EXISTS` subquery**: the AE has an `ACTIVE` tag of that type with one of the picked values. Never a join (joins duplicate rows and break paging).
 - Build queries with JPA `Specification`s; never concatenate SQL/JPQL.
 - Load a page in **two queries**: the page of AEs, then what the cards need for those ids (`WHERE ae_id IN (:ids)`): recommendation counts, owners for `isOwner`, current locks. No N+1, no `JOIN FETCH` with paging.
 - An empty result is **200** with `items: []`.
-- `/filters`: `SELECT DISTINCT` per column of the AE table, `@Cacheable`. Evict when AE data changes.
+- `/filters`: `SELECT DISTINCT` per AE-table column, plus every taggable value (no children) from each attribute type's table, as plain lists (2,000+ per type). Build once and `@Cacheable`; evict when AE or attribute data changes. Turn on response compression: the response is about 1.6 MB raw, roughly 200 KB compressed.
 
 ## AE detail (API 3)
 - 11 sections in screen order, each with `label`, `description`, `recommendationCount`, `tagged` and `recommended`.
@@ -97,7 +98,7 @@ com.map
 - Turn on response compression (`server.compression.enabled=true`).
 
 ## Tests
-- Filters: OR within a key, AND across keys, `aeOwner`, unknown key → 400, empty result → 200.
+- Filters: OR within a key, AND across keys, `aeOwner`, an attribute-type filter (only ACTIVE tags match), unknown key → 400, empty result → 200.
 - Detail: tagged and recommended don't overlap; counts; `canEdit` only for the owner holding the lock.
 - All Available: top level only; children endpoint; `hasChildren` correct; flat types.
 - Lock: owner gets it; second owner → 409; non-owner → 403; expiry after 15 min; renew; concurrent take → only one wins; DELETE by non-holder is a no-op.

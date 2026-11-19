@@ -41,7 +41,7 @@ OpenAPI 3.0 specification for the Attribute Tagging screen.
 - **Lock timeout:** 15 minutes without activity. API 4 `POST` and API 5 renew it; the UI renews every 5 minutes while the user is active in edit mode.
 - **11 attribute types:** Est, Risks, Key Legal Entities, Key Regulations, Key Third Parties, Key Applications, Key Models, Archer Risk Units, General Ledger / Cost Centers, Locations, Products.
 - **Attribute data:** each of the 11 types has its own table with 2,000+ values. Some types have parent and child attributes; only attributes without children can be tagged.
-- **Filters:** AE ID, AE Name, AE Owner (preselected), Business Area, Division. All from the AE table, each a plain list. OR within a dropdown, AND across dropdowns. `{}` = all AEs.
+- **Filters:** every dropdown is a plain list. AE ID, AE Name, AE Owner (preselected), Business Area and Division come from the AE table; one dropdown per attribute type (11) comes from that type's table and finds AEs with the picked values tagged. OR within a dropdown, AND across dropdowns. `{}` = all AEs.
 - **Saved filters:** at most 3 per user; a 4th returns 409.
 
 ## Working on the spec

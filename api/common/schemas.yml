@@ -27,14 +27,29 @@ Option:
 FilterKey:
   type: string
   description: |
-    The dropdowns on the screen, in screen order. All come from the AE table and are plain lists
-    (no parent/child levels). AE Owner is preselected with the logged-in user.
+    The dropdowns on the screen, in screen order. Every dropdown is a plain list (no levels).
+    - aeId, aeName, aeOwner, businessArea, businessDivision - from the AE table.
+      AE Owner is preselected with the logged-in user.
+    - est, risk, legalEntity, regulation, thirdParty, application, model, archerRiskUnit,
+      costCenter, location, product - the 11 attribute types, each from its own table.
+      Options = every taggable value of that type; picking one finds the AEs that have it tagged.
   enum:
     - aeId
     - aeName
     - aeOwner
+    - est
+    - risk
+    - legalEntity
+    - regulation
+    - thirdParty
+    - application
     - businessArea
     - businessDivision
+    - model
+    - archerRiskUnit
+    - costCenter
+    - location
+    - product
 
 Filter:
   type: object
@@ -62,6 +77,7 @@ Filters:
       type: string
   example:
     aeOwner: ['12345']
+    legalEntity: [LE-UK-01, LE-US-02]
     businessArea: [Corporate Divisions - Enterprise Risk Management]
 
 PageMeta:
