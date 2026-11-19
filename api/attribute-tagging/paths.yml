@@ -1,36 +1,15 @@
-aes:
-  get:
-    tags: [AttributeTagging]
-    summary: Attribute Tagging cards (mine by default, or all)
-    description: Sort fields allowed - aeName, aeId, businessArea, modifiedOn.
-    operationId: getAttributeTaggingAes
-    parameters:
-      - $ref: '../common/parameters.yml#/Scope'
-      - $ref: '../common/parameters.yml#/Page'
-      - $ref: '../common/parameters.yml#/PageSize'
-      - $ref: '../common/parameters.yml#/Sort'
-    responses:
-      '200':
-        description: A page of AEs (empty list if none)
-        content:
-          application/json:
-            schema:
-              $ref: './schemas.yml#/AttributeTaggingPage'
-      '400':
-        $ref: '../common/responses.yml#/BadRequest'
-      '401':
-        $ref: '../common/responses.yml#/Unauthorized'
-      '500':
-        $ref: '../common/responses.yml#/ServerError'
-
 aesSearch:
   post:
     tags: [AttributeTagging]
-    summary: Search and filter Attribute Tagging cards
+    summary: List, search and filter Attribute Tagging cards
     description: |
-      Filters allowed on this screen - aeId, aeName, est, risk, keyLegalEntity, keyThirdParty,
+      The only list endpoint. An empty body {} returns the caller's own AEs (scope MINE).
+
+      Filters on this screen - aeId, aeName, est, risk, keyLegalEntity, keyThirdParty,
       keyApplication, businessArea, businessDivision, keyModel, archerRiskUnit, costCenter,
       location, product, auditTeam.
+
+      Sort fields - aeName, aeId, businessArea, modifiedOn.
     operationId: searchAttributeTaggingAes
     parameters:
       - $ref: '../common/parameters.yml#/Page'
@@ -42,22 +21,26 @@ aesSearch:
         application/json:
           schema:
             $ref: '../common/schemas.yml#/SearchRequest'
-          example:
-            scope: ALL
-            searchText: equity
-            criteria:
-              - field: aeName
-                operator: INCLUDE
-                values: ['000000004561', '000000004890']
-              - field: keyLegalEntity
-                operator: INCLUDE
-                values: [LE-UK-01]
-              - field: costCenter
-                operator: EXCLUDE
-                values: [CC-9999]
+          examples:
+            myAes:
+              summary: Screen opens - my AEs
+              value: {}
+            filtered:
+              summary: All AEs, filtered
+              value:
+                scope: ALL
+                searchText: equity
+                criteria:
+                  - field: aeName
+                    values: ['000000004561', '000000004890']
+                  - field: keyLegalEntity
+                    values: [LE-UK-01]
+                  - field: costCenter
+                    operator: EXCLUDE
+                    values: [CC-9999]
     responses:
       '200':
-        description: Matching AEs (empty list if none match)
+        description: A page of AEs (empty items if none match)
         content:
           application/json:
             schema:
@@ -66,14 +49,12 @@ aesSearch:
         $ref: '../common/responses.yml#/BadRequest'
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
-      '500':
-        $ref: '../common/responses.yml#/ServerError'
 
 filters:
   get:
     tags: [AttributeTagging]
     summary: Filter dropdowns for Attribute Tagging
-    description: Options are distinct values from the AEs in the requested scope, in screen order.
+    description: Every value used by the AEs in the requested scope, in screen order.
     operationId: getAttributeTaggingFilters
     parameters:
       - $ref: '../common/parameters.yml#/Scope'
@@ -89,49 +70,16 @@ filters:
             example:
               - key: aeName
                 label: AE Name
-                type: MULTI_SELECT
                 options:
                   - value: '000000004561'
                     label: State Street IM Systematic Equity
                     count: 1
               - key: keyLegalEntity
                 label: Key Legal Entities
-                type: MULTI_SELECT
                 options:
                   - value: LE-UK-01
                     label: Example Bank UK Ltd
                     count: 12
-              - key: keyThirdParty
-                label: Key Third Parties
-                type: TYPEAHEAD
-                options: []
-      '401':
-        $ref: '../common/responses.yml#/Unauthorized'
-      '500':
-        $ref: '../common/responses.yml#/ServerError'
-
-filterOptions:
-  get:
-    tags: [AttributeTagging]
-    summary: Typeahead options for one filter
-    description: Only for filters returned as TYPEAHEAD by /attribute-tagging/filters.
-    operationId: getAttributeTaggingFilterOptions
-    parameters:
-      - $ref: '../common/parameters.yml#/FilterKeyPath'
-      - $ref: '../common/parameters.yml#/TypeaheadQuery'
-      - $ref: '../common/parameters.yml#/Scope'
-      - $ref: '../common/parameters.yml#/Limit'
-    responses:
-      '200':
-        description: Matching options
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                $ref: '../common/schemas.yml#/FilterOption'
-      '400':
-        $ref: '../common/responses.yml#/BadRequest'
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
 
@@ -145,7 +93,7 @@ aeDetail:
       - $ref: '../common/parameters.yml#/AeId'
     responses:
       '200':
-        description: The AE with its tags
+        description: The AE with labelled attributes
         content:
           application/json:
             schema:
@@ -154,8 +102,6 @@ aeDetail:
         $ref: '../common/responses.yml#/Unauthorized'
       '404':
         $ref: '../common/responses.yml#/NotFound'
-      '500':
-        $ref: '../common/responses.yml#/ServerError'
 
 aeTags:
   put:
@@ -188,8 +134,6 @@ aeTags:
         $ref: '../common/responses.yml#/NotFound'
       '409':
         $ref: '../common/responses.yml#/Conflict'
-      '500':
-        $ref: '../common/responses.yml#/ServerError'
 
 aeRecommendations:
   get:

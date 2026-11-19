@@ -45,23 +45,6 @@ Sort:
     type: string
     default: aeName,asc
 
-FilterKeyPath:
-  name: key
-  in: path
-  required: true
-  schema:
-    $ref: './schemas.yml#/FilterKey'
-
-TypeaheadQuery:
-  name: q
-  in: query
-  required: true
-  description: Text the user has typed (case-insensitive contains)
-  schema:
-    type: string
-    minLength: 1
-    maxLength: 100
-
 Limit:
   name: limit
   in: query

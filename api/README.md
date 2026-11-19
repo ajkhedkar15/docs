@@ -24,13 +24,14 @@ Commit the rebuilt bundle with your change. The **API spec** GitHub Action fails
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/<screen>/aes?scope=MINE\|ALL` | Cards, paged (page from 1, pageSize up to 1000) |
-| POST | `/<screen>/aes/search` | Search with `criteria[]` (INCLUDE / EXCLUDE) |
+| POST | `/<screen>/aes/search` | List and filter cards, paged (page from 1, pageSize up to 1000). Body `{}` = my AEs |
 | GET | `/<screen>/filters?scope=MINE\|ALL` | Filter dropdowns and options |
 | GET | `/<screen>/aes/{aeId}` | Detail of one AE for that screen |
 | PUT/POST | `/<screen>/aes/{aeId}/...` | Edits (owners only, otherwise 403) |
 
-Shared: `GET /users?q=`, `GET /me`, `GET /auditable-entities/{aeId}`, `/saved-filters`, `GET /lookups/{type}`.
+Shared: `GET /users?q=`, `GET /me`, `/saved-filters`, `GET /lookups/{key}`.
+
+List responses are always `{ page, pageSize, totalRecords, totalPages, lastPage, items }`. Each card has `filterValues` (codes for every filter of the screen), so the browser can filter exactly like the server.
 
 ## Who is the caller
 

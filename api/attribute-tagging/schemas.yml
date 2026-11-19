@@ -3,84 +3,38 @@ AttributeTaggingCard:
   allOf:
     - $ref: '../common/schemas.yml#/AeSummary'
     - type: object
-      required: [recommendationCount, attributes]
+      required: [recommendationCount, filterValues]
       properties:
         recommendationCount:
           type: integer
           description: Shown as "N Recommendations"
           example: 4
-        attributes:
-          type: object
-          description: |
-            Tagged attributes keyed by filter key. Values are codes; labels come from /attribute-tagging/filters.
-            A missing key means the AE has no values for it.
-          additionalProperties:
-            type: array
-            items:
-              type: string
-          example:
-            keyLegalEntity: [LE-UK-01]
-            keyApplication: [APP-221, APP-310]
-            keyModel: [MDL-17]
-            keyThirdParty: [TP-0091]
-            costCenter: [CC-4410]
+        filterValues:
+          $ref: '../common/schemas.yml#/FilterValues'
 
 AttributeTaggingPage:
   allOf:
     - $ref: '../common/schemas.yml#/PageMeta'
     - type: object
-      required: [auditableEntities]
+      required: [items]
       properties:
-        auditableEntities:
+        items:
           type: array
           items:
             $ref: '#/AttributeTaggingCard'
-
-Tag:
-  type: object
-  required: [value, label]
-  properties:
-    value:
-      type: string
-      example: APP-221
-    label:
-      type: string
-      example: APP-221 Fund Ledger
 
 AttributeTaggingDetail:
   description: Everything the detail page shows for one AE
   allOf:
     - $ref: '../common/schemas.yml#/AeSummary'
     - type: object
-      required: [tags, recommendationCount]
+      required: [recommendationCount, attributes, version]
       properties:
         recommendationCount:
           type: integer
           example: 4
-        tags:
-          type: object
-          description: Assigned tags with labels, grouped by kind
-          required: [keyApplication, keyModel, keyThirdParty]
-          properties:
-            keyApplication:
-              type: array
-              items:
-                $ref: '#/Tag'
-            keyModel:
-              type: array
-              items:
-                $ref: '#/Tag'
-            keyThirdParty:
-              type: array
-              items:
-                $ref: '#/Tag'
         attributes:
-          type: object
-          description: Other (read-only on this screen) attributes, with labels
-          additionalProperties:
-            type: array
-            items:
-              $ref: '#/Tag'
+          $ref: '../common/schemas.yml#/LabelledValues'
         version:
           type: integer
           description: Send back in TagUpdateRequest to detect concurrent edits
@@ -89,8 +43,8 @@ AttributeTaggingDetail:
 TagUpdateRequest:
   type: object
   description: |
-    Replaces the AE's Application, Model and Third Party tags with these lists.
-    Values come from /lookups/{type}.
+    Replaces the AE's Application, Model and Third Party tags with these lists of codes.
+    Choices come from /lookups/keyApplication, /lookups/keyModel and /lookups/keyThirdParty.
   required: [keyApplication, keyModel, keyThirdParty, version]
   properties:
     keyApplication:
@@ -110,7 +64,7 @@ TagUpdateRequest:
       example: [TP-0091]
     version:
       type: integer
-      description: The version read from the detail endpoint. A different current version returns 409.
+      description: The version read from the detail endpoint. If the AE has changed since, 409 is returned.
       example: 7
 
 Recommendation:
@@ -121,9 +75,10 @@ Recommendation:
       type: integer
       format: int64
       example: 901
-    type:
+    field:
       type: string
-      enum: [APPLICATION, MODEL, THIRD_PARTY]
+      description: Which tag list it is for
+      enum: [keyApplication, keyModel, keyThirdParty]
     value:
       type: string
       example: APP-512

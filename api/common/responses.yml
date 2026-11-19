@@ -1,5 +1,5 @@
 BadRequest:
-  description: Invalid request (unknown filter field, pageSize over 1000, bad sort field ...)
+  description: Invalid request (a filter the screen doesn't offer, pageSize over 1000, bad sort field ...)
   content:
     application/problem+json:
       schema:
@@ -55,14 +55,3 @@ Conflict:
         status: 409
         title: Conflict
         detail: Auditable Entity 000000004561 was changed by someone else. Reload and try again.
-
-ServerError:
-  description: Internal Server Error
-  content:
-    application/problem+json:
-      schema:
-        $ref: './schemas.yml#/ErrorResponse'
-      example:
-        status: 500
-        title: Internal Server Error
-        detail: Unexpected error, reference id 7f3c2a

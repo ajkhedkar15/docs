@@ -6,8 +6,27 @@ ScreenId:
 
 Scope:
   type: string
+  description: MINE = AEs where the caller is an owner; ALL = every AE
   enum: [MINE, ALL]
   default: MINE
+
+Option:
+  type: object
+  description: A value and its display text. Used for filter options, lookups and labelled attributes.
+  required: [value, label]
+  properties:
+    value:
+      type: string
+      description: Code or id. This is what is sent back to the API.
+      example: LE-UK-01
+    label:
+      type: string
+      description: Display text
+      example: Example Bank UK Ltd
+    count:
+      type: integer
+      description: Only in filter options - number of AEs in the requested scope with this value
+      example: 12
 
 Person:
   type: object
@@ -22,31 +41,25 @@ Person:
       example: John Smith
 
 CurrentUser:
-  type: object
-  required: [id, name, roles]
-  properties:
-    id:
-      type: string
-      example: '12345'
-    name:
-      type: string
-      example: John Smith
-    username:
-      type: string
-      example: jsmith
-    roles:
-      type: array
-      items:
-        type: string
-      example: [AE_USER]
+  allOf:
+    - $ref: '#/Person'
+    - type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          items:
+            type: string
+          example: [AE_USER]
 
 AeSummary:
   type: object
-  description: Core AE fields shared by every screen. Screen cards extend this.
-  required: [aeId, aeName, aeOwner, canEdit]
+  description: Core AE fields shared by every screen. Each screen's card and detail extend this.
+  required: [aeId, aeName, aeOwners, canEdit]
   properties:
     aeId:
       type: string
+      description: Keeps leading zeros
       example: '000000004561'
     aeName:
       type: string
@@ -55,17 +68,19 @@ AeSummary:
       type: string
       nullable: true
       example: Performs fund accounting services
-    aeOwner:
+    aeOwners:
       type: array
       items:
         $ref: '#/Person'
     businessArea:
       type: string
       nullable: true
+      description: Display text
       example: Corporate Divisions - Enterprise Risk Management
-    division:
+    businessDivision:
       type: string
       nullable: true
+      description: Display text
       example: Corporate Divisions
     canEdit:
       type: boolean
@@ -79,8 +94,45 @@ AeSummary:
       type: string
       example: map-system
 
+FilterValues:
+  type: object
+  description: |
+    The AE's value codes for every filter of the screen except aeId and aeName, keyed by filter key.
+    Always arrays, also for single-value fields (businessArea, est ...). A missing key means no value.
+    The browser filters with aeId, aeName and this map only, so every filter of the screen must be here.
+  additionalProperties:
+    type: array
+    items:
+      type: string
+  example:
+    est: [EST-01]
+    businessArea: [BA-ERM]
+    businessDivision: [BD-CORP]
+    auditTeam: [AT-ERM]
+    keyLegalEntity: [LE-UK-01]
+    keyApplication: [APP-221, APP-310]
+    keyModel: [MDL-17]
+    keyThirdParty: [TP-0091]
+    costCenter: [CC-4410]
+
+LabelledValues:
+  type: object
+  description: Same keys as FilterValues, with labels, for detail pages.
+  additionalProperties:
+    type: array
+    items:
+      $ref: '#/Option'
+  example:
+    keyLegalEntity:
+      - value: LE-UK-01
+        label: Example Bank UK Ltd
+    keyApplication:
+      - value: APP-221
+        label: APP-221 Fund Ledger
+
 PageMeta:
   type: object
+  description: Every list response has these fields plus `items`.
   required: [page, pageSize, totalRecords, totalPages, lastPage]
   properties:
     page:
@@ -97,14 +149,14 @@ PageMeta:
       example: 1
     lastPage:
       type: boolean
-      description: true when there are no more pages; the client can then filter locally
+      description: true when there are no more pages; the browser can then filter locally
       example: true
 
 FilterKey:
   type: string
   description: |
     Catalog of every filter used across screens. Each screen accepts only its own subset
-    (an unknown field for that screen returns 400).
+    (a filter the screen doesn't offer returns 400). Also used as the lookup type.
   enum:
     - aeId
     - aeName
@@ -124,6 +176,7 @@ FilterKey:
 
 Criterion:
   type: object
+  description: For aeId and aeName the values are AE ids.
   required: [field, values]
   properties:
     field:
@@ -141,6 +194,7 @@ Criterion:
 
 SearchRequest:
   type: object
+  description: An empty body {} returns the caller's own AEs.
   properties:
     scope:
       $ref: '#/Scope'
@@ -154,56 +208,24 @@ SearchRequest:
       items:
         $ref: '#/Criterion'
 
-FilterOption:
-  type: object
-  required: [value, label]
-  properties:
-    value:
-      type: string
-      description: Sent back in criteria (a code or id)
-      example: LE-UK-01
-    label:
-      type: string
-      description: Shown in dropdowns and chips
-      example: Example Bank UK Ltd
-    count:
-      type: integer
-      description: Number of AEs in the requested scope with this value
-      example: 12
-
 Filter:
   type: object
-  required: [key, label, type, options]
+  required: [key, label, options]
   properties:
     key:
       $ref: '#/FilterKey'
     label:
       type: string
       example: Key Legal Entities
-    type:
-      type: string
-      description: TYPEAHEAD filters have no options; use the screen's /filters/{key}/options endpoint
-      enum: [MULTI_SELECT, TYPEAHEAD]
     options:
       type: array
+      description: Every value in the requested scope. For aeId and aeName, value = AE id.
       items:
-        $ref: '#/FilterOption'
-
-LookupType:
-  type: string
-  description: Reference data lists (all values, not only those already used on AEs)
-  enum:
-    - application
-    - model
-    - thirdParty
-    - legalEntity
-    - costCenter
-    - location
-    - product
+        $ref: '#/Option'
 
 SavedFilterRequest:
   type: object
-  required: [screen, name, criteria]
+  required: [screen, name, search]
   properties:
     screen:
       $ref: '#/ScreenId'
@@ -212,15 +234,8 @@ SavedFilterRequest:
       minLength: 1
       maxLength: 100
       example: UK legal entities
-    scope:
-      $ref: '#/Scope'
-    searchText:
-      type: string
-      maxLength: 100
-    criteria:
-      type: array
-      items:
-        $ref: '#/Criterion'
+    search:
+      $ref: '#/SearchRequest'
 
 SavedFilter:
   allOf:
