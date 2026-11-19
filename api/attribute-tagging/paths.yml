@@ -27,7 +27,7 @@ filters:
                 options:
                   - value: '000000004561'
                     label: '000000004561'
-              - key: keyLegalEntity
+              - key: legalEntity
                 label: Key Legal Entities
                 options:
                   - value: LE-UK-01
@@ -66,8 +66,8 @@ aesSearch:
               value:
                 filters:
                   aeOwner: ['12345']
-                  keyLegalEntity: [LE-UK-01, LE-US-02]
-                  costCenter: [CC-4410]
+                  legalEntity: [LE-UK-01, LE-US-02]
+                  asset: [APP-221]
             allAes:
               summary: No filters - all AEs
               value: {}
@@ -140,11 +140,11 @@ aeDetail:
                 id: '12345'
                 name: John Smith
               attributeTypes:
-                - type: keyApplication
-                  label: Key Applications
+                - type: asset
+                  label: Assets (Applications)
                   tagged:
                     - attributeId: APP-221
-                      attributeType: keyApplication
+                      attributeType: asset
                       name: Fund Ledger
                       description: General ledger for fund accounting
                       comment: Core ledger for this fund
@@ -155,13 +155,13 @@ aeDetail:
                       taggedOn: '2026-10-11T14:21:00Z'
                   recommended:
                     - attributeId: APP-512
-                      attributeType: keyApplication
+                      attributeType: asset
                       name: Pricing Engine
                       description: Prices securities daily
                       reason: Used by 3 AEs in the same business area
                   available:
                     - attributeId: APP-310
-                      attributeType: keyApplication
+                      attributeType: asset
                       name: NAV Calculator
                       description: Calculates daily net asset value
       '401':
@@ -237,13 +237,13 @@ aeAttributes:
           example:
             attributes:
               - attributeId: APP-221
-                attributeType: keyApplication
+                attributeType: asset
                 comment: Core ledger for this fund
               - attributeId: APP-512
-                attributeType: keyApplication
+                attributeType: asset
                 comment: Added from recommendation - used for pricing
               - attributeId: LE-UK-01
-                attributeType: keyLegalEntity
+                attributeType: directLegalEntity
                 comment: UK booking entity
     responses:
       '200':
@@ -294,7 +294,7 @@ savedFilters:
           example:
             name: UK entities
             filters:
-              keyLegalEntity: [LE-UK-01]
+              legalEntity: [LE-UK-01]
     responses:
       '201':
         description: Saved

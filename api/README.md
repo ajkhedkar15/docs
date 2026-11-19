@@ -38,6 +38,8 @@ OpenAPI 3.0 specification for the Attribute Tagging screen.
 - **Lock timeout:** 15 minutes without activity. API 4 `POST` and API 5 renew it; the UI renews every 5 minutes while the user is active in edit mode.
 - **Filters:** OR within a dropdown, AND across dropdowns. `{}` = all AEs.
 - **Saved filters:** at most 3 per user; a 4th returns 409.
+- **11 attribute types:** EST / Business Function, Direct Legal Entity, Relevant Legal Entity, Products, Risk Units, Risks, Standards (Regulations), Assets (Applications), Third Parties, Models, Location. EST is the main driver of recommendations.
+- **Filters vs attribute types:** most filters are attribute types under the same key. `legalEntity` matches Direct or Relevant. Standards has no filter. `businessArea`, `businessDivision`, `costCenter`, `auditTeam`, `aeId`, `aeName`, `aeOwner` are AE fields.
 - **Recommendations:** everyone sees them (view only for non-owners). After every Update the backend re-runs the recommendation rules, and API 5 returns the fresh lists.
 
 ## Working on the spec

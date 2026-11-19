@@ -8,7 +8,9 @@ info:
     ## The screen in one paragraph
     The user lands on Attribute Tagging and sees the Auditable Entities (AEs) they own: the
     AE Owner filter starts preselected with them. They change the dropdown filters to find other
-    AEs. Opening an AE shows its 11 attribute types, each with three lists: what is tagged now,
+    AEs. Opening an AE shows its 11 attribute types (EST / Business Function, Direct Legal Entity,
+    Relevant Legal Entity, Products, Risk Units, Risks, Standards, Assets, Third Parties, Models,
+    Location), each with three lists: what is tagged now,
     what is recommended, and what else is available. An owner clicks Edit to lock the AE, adds
     or removes attributes in the browser, and clicks Update to save the whole list. Everyone sees
     the recommendations; after each Update the backend re-runs the recommendation rules.
@@ -85,7 +87,7 @@ paths:
                   options:
                     - value: '000000004561'
                       label: '000000004561'
-                - key: keyLegalEntity
+                - key: legalEntity
                   label: Key Legal Entities
                   options:
                     - value: LE-UK-01
@@ -126,11 +128,11 @@ paths:
                   filters:
                     aeOwner:
                       - '12345'
-                    keyLegalEntity:
+                    legalEntity:
                       - LE-UK-01
                       - LE-US-02
-                    costCenter:
-                      - CC-4410
+                    asset:
+                      - APP-221
               allAes:
                 summary: No filters - all AEs
                 value: {}
@@ -203,11 +205,11 @@ paths:
                   id: '12345'
                   name: John Smith
                 attributeTypes:
-                  - type: keyApplication
-                    label: Key Applications
+                  - type: asset
+                    label: Assets (Applications)
                     tagged:
                       - attributeId: APP-221
-                        attributeType: keyApplication
+                        attributeType: asset
                         name: Fund Ledger
                         description: General ledger for fund accounting
                         comment: Core ledger for this fund
@@ -218,13 +220,13 @@ paths:
                         taggedOn: '2026-10-11T14:21:00Z'
                     recommended:
                       - attributeId: APP-512
-                        attributeType: keyApplication
+                        attributeType: asset
                         name: Pricing Engine
                         description: Prices securities daily
                         reason: Used by 3 AEs in the same business area
                     available:
                       - attributeId: APP-310
-                        attributeType: keyApplication
+                        attributeType: asset
                         name: NAV Calculator
                         description: Calculates daily net asset value
         '401':
@@ -301,13 +303,13 @@ paths:
             example:
               attributes:
                 - attributeId: APP-221
-                  attributeType: keyApplication
+                  attributeType: asset
                   comment: Core ledger for this fund
                 - attributeId: APP-512
-                  attributeType: keyApplication
+                  attributeType: asset
                   comment: Added from recommendation - used for pricing
                 - attributeId: LE-UK-01
-                  attributeType: keyLegalEntity
+                  attributeType: directLegalEntity
                   comment: UK booking entity
       responses:
         '200':
@@ -359,7 +361,7 @@ paths:
             example:
               name: UK entities
               filters:
-                keyLegalEntity:
+                legalEntity:
                   - LE-UK-01
       responses:
         '201':
@@ -417,20 +419,25 @@ components:
   schemas:
     FilterKey:
       type: string
-      description: The dropdowns on the screen
+      description: |
+        The dropdowns on the screen, in screen order. Filters that are also attribute types use the
+        same key (est, risk, thirdParty, asset, model, riskUnit, location, product).
+        - aeId, aeName, aeOwner, businessArea, businessDivision, costCenter, auditTeam - fields of the AE
+        - legalEntity - matches the Direct OR the Relevant Legal Entity
+        - the rest - the AE's tagged attributes of that type
       enum:
+        - aeOwner
         - aeId
         - aeName
-        - aeOwner
         - est
         - risk
-        - keyLegalEntity
-        - keyThirdParty
-        - keyApplication
+        - legalEntity
+        - thirdParty
+        - asset
         - businessArea
         - businessDivision
-        - keyModel
-        - archerRiskUnit
+        - model
+        - riskUnit
         - costCenter
         - location
         - product
@@ -498,7 +505,7 @@ components:
       example:
         aeOwner:
           - '12345'
-        keyLegalEntity:
+        legalEntity:
           - LE-UK-01
           - LE-US-02
     PageMeta:
@@ -608,9 +615,32 @@ components:
     AttributeType:
       type: string
       description: |
-        One of the 11 attribute types, for example keyApplication, keyModel, keyThirdParty,
-        keyLegalEntity, risk, archerRiskUnit, costCenter, location, product.
-      example: keyApplication
+        The 11 attribute types, in screen order:
+        - est - EST / Business Function. The primary recommendation driver: other attributes are
+          recommended from EST relationships.
+        - directLegalEntity - Direct Legal Entity associated to the AE
+        - relevantLegalEntity - related legal entities. Kept separate from Direct Legal Entity.
+        - product - Products (client services / products)
+        - riskUnit - Risk Units (risk organizations)
+        - risk - Risks (potential risks)
+        - standard - Standards (Regulations), regulatory obligations
+        - asset - Assets (Applications), technology systems
+        - thirdParty - Third Parties (external vendors)
+        - model - Models (business / risk models)
+        - location - Location (work locations)
+      enum:
+        - est
+        - directLegalEntity
+        - relevantLegalEntity
+        - product
+        - riskUnit
+        - risk
+        - standard
+        - asset
+        - thirdParty
+        - model
+        - location
+      example: asset
     Attribute:
       type: object
       required:
@@ -655,7 +685,8 @@ components:
               example: '2026-10-11T14:21:00Z'
     RecommendedAttribute:
       description: |
-        An attribute the recommendation rules suggest, not tagged yet. Everyone sees recommendations;
+        An attribute the recommendation rules suggest, not tagged yet. The rules are driven mainly by
+        the AE's EST / Business Function. Everyone sees recommendations;
         only the owner holding the lock can add one. The rules run again after every Update, because
         a newly tagged attribute can change what is recommended.
       allOf:
@@ -682,7 +713,7 @@ components:
           $ref: '#/components/schemas/AttributeType'
         label:
           type: string
-          example: Key Applications
+          example: Assets (Applications)
         tagged:
           type: array
           items:

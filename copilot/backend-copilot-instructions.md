@@ -38,15 +38,17 @@ com.map
 ## Filtering (API 1 and 2)
 - `filters` is a map of filter key → selected values. **OR within a key, AND across keys.** Unknown key → 400.
 - `aeId` and `aeName` values are AE ids; `aeOwner` values are user ids.
-- AE-table fields (`aeId`, `aeName`, `est`, `businessArea`, `businessDivision`, `auditTeam`) → `IN (...)` on the column.
-- Multi-value fields (owners and the attribute types) → **`EXISTS` subqueries** on the ownership / attribute tables, never joins (joins duplicate rows and break paging). Only `ACTIVE` attribute rows count.
+- AE fields (`aeId`, `aeName`, `businessArea`, `businessDivision`, `costCenter`, `auditTeam`) → `IN (...)` on the column.
+- `aeOwner` and every filter that is an attribute type (`est`, `risk`, `thirdParty`, `asset`, `model`, `riskUnit`, `location`, `product`) → **`EXISTS` subqueries** on the ownership / attribute tables, never joins (joins duplicate rows and break paging). Only `ACTIVE` attribute rows count.
+- `legalEntity` matches an `ACTIVE` attribute of type `directLegalEntity` **or** `relevantLegalEntity`.
 - Build queries with JPA `Specification`s; never concatenate SQL/JPQL.
 - Load a page in **two queries**: the page of AEs, then whatever the cards need for those ids (`WHERE ae_id IN (:ids)`): recommendation counts, owners for `isOwner`, current locks. No N+1, no `JOIN FETCH` with paging.
 - An empty result is **200** with `items: []`.
 - `/filters`: `SELECT DISTINCT` per filter across all AEs, `@Cacheable`, evicted when API 5 changes attributes.
 
 ## AE detail (API 3)
-- 11 groups in screen order. Each attribute appears in **exactly one** list:
+- 11 groups in screen order: `est`, `directLegalEntity`, `relevantLegalEntity`, `product`, `riskUnit`, `risk`, `standard`, `asset`, `thirdParty`, `model`, `location`. Direct and Relevant Legal Entity are separate types and must stay separate.
+- EST / Business Function is the main driver of the recommendation rules. Each attribute appears in **exactly one** list:
   - `tagged` = the AE's `ACTIVE` attributes (with comment, taggedBy, taggedOn),
   - `recommended` = from the recommendation rules, minus tagged (with `reason`). Shown to everyone, owners and viewers alike,
   - `available` = every attribute of that type that is neither tagged nor recommended.
