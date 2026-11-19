@@ -34,12 +34,26 @@ In screen order: `est` (Est), `risk` (Risks), `legalEntity` (Key Legal Entities)
 - **Only attributes without children can be tagged.** API 5 rejects any other with 400.
 - Tagged attributes carry `path`: the names of their parents, top level first.
 
-## Package structure
+## Package structure (by layer, shared by all screens)
 ```
 com.map
-├── common            CurrentUser, error handling (ProblemDetail), paging helpers
-└── attributetagging  controllers, services, repositories, entities for the APIs above
+├── web          FilterController, AeController, LockController, TaggingController,
+│                SavedFilterController, GlobalExceptionHandler
+├── service      FilterService, AeQueryService, AeDetailService, LockService, TaggingService,
+│                AttributeCatalogService, RecommendationService, SavedFilterService
+├── repository   AeRepository, AeOwnerRepository, AeTagRepository, AeLockRepository,
+│                SavedFilterRepository, one repository per attribute type table
+├── entity       JPA entities
+├── dto          generated from the spec (openapi-generator); never hand-written
+├── filter       FilterDefinition, ScreenFilters, AttributeTaggingFilters, FilterSpecificationBuilder
+├── security     CurrentUser, UserContext, HeaderCurrentUser (dev-auth), later JwtCurrentUser
+├── exception    NotOwnerException, AeLockedException, NotFoundException, SavedFilterLimitException, ...
+└── config       caching, compression, generator settings
 ```
+- **One package per layer**, not per screen. A new screen adds its classes to these packages (e.g. `web/RiskAssessmentController`, `service/RiskAssessmentService`) and a `ScreenFilters` bean in `filter`.
+- **Controllers are thin:** implement the generated interface, get the user from `CurrentUser`, call one service method, return. No queries or business rules in `web`.
+- **Services** hold the rules and transactions; **repositories** only data access.
+- Services throw exceptions from `exception`; `GlobalExceptionHandler` maps them to ProblemDetail (403 not owner, 409 locked / saved-filter limit, 404, 400 validation, 401 no user).
 
 ## Who is the caller
 - **Now (temporary, no JWT):** the UI sends the user id in the **`X-User-Id`** header. Implement `HeaderCurrentUser`, active only under the Spring profile **`dev-auth`**: read the header, load the user, return 401 if missing or unknown. Not secure; never enable in production.
@@ -49,8 +63,8 @@ com.map
 ## Filters are screen-based (reuse for new screens)
 - The filter APIs and shapes are the same on every screen; only the list of dropdowns changes. Build them once, generically:
   - a `FilterDefinition` per dropdown: `key`, `label`, and its source (an AE-table column, or an attribute type's table);
-  - a `ScreenFilters` bean per screen listing its `FilterDefinition`s in screen order;
-  - one `FilterService` that builds the `/filters` response (cached per screen) and turns `{ filters }` into a JPA `Specification` from those definitions.
+  - a `ScreenFilters` bean per screen (in `filter`) listing its `FilterDefinition`s in screen order;
+  - one `FilterService` (in `service`) that builds the `/filters` response (cached per screen) and turns `{ filters }` into a JPA `Specification` from those definitions.
 - A new screen adds its `ScreenFilters` and card mapping; it never copies the filter code.
 
 ## Filtering (API 1 and 2)
