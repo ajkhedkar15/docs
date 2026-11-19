@@ -64,10 +64,11 @@ AePage:
           items:
             $ref: '#/AeCard'
 
-AttributeTaggingFilterKey:
+AttributeTaggingFilterType:
   type: string
   description: |
-    Attribute Tagging's dropdowns, in screen order. Every dropdown is a plain list (no levels).
+    Attribute Tagging's dropdowns, in screen order. Every dropdown is a plain list of text (no levels).
+    The UI holds the label shown for each type (for example est -> "EST").
     - aeId, aeName, aeOwner, businessArea, businessDivision - from the AE table.
       AE Owner is preselected with the logged-in user.
     - est, risk, legalEntity, regulation, thirdParty, application, model, archerRiskUnit,
@@ -92,13 +93,13 @@ AttributeTaggingFilterKey:
     - product
 
 AttributeTaggingFilter:
-  description: One Attribute Tagging dropdown (the common Filter, with this screen's keys)
+  description: One Attribute Tagging dropdown (the common Filter, with this screen's types)
   allOf:
     - $ref: '../common/schemas.yml#/Filter'
     - type: object
       properties:
-        key:
-          $ref: '#/AttributeTaggingFilterKey'
+        type:
+          $ref: '#/AttributeTaggingFilterType'
 
 AttributeType:
   type: string

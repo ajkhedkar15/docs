@@ -15,7 +15,7 @@ The Spring Boot REST API behind the **Attribute Tagging** screen of myAuditPlan.
 | # | Endpoint | Does |
 |---|---|---|
 | 1 | `GET /filters` | Every filter in screen order with every value across all AEs. Same for every user → cache once. |
-| 2 | `POST /aes/search?page&pageSize` | Body `{ filters: { <key>: [values] } }`. Server-side filtering, sorted by AE name, paged (default 20, max 100). `{}` = all AEs. |
+| 2 | `POST /aes/search?page&pageSize` | Body `{ filters: { <type>: [text, …] } }`. Server-side filtering, sorted by AE name, paged (default 20, max 100). `{}` = all AEs. |
 | 3 | `GET /aes/{aeId}` | One AE with 11 attribute-type sections: `tagged`, `recommended`, `recommendationCount`, `description`. Plus `isOwner`, `lock`, `canEdit`. |
 | 4 | `POST /aes/{aeId}/lock` / `DELETE` | Take or renew / release the edit lock. |
 | 5 | `PUT /aes/{aeId}/attributes` | Save the complete list of tagged attributes. |
@@ -158,7 +158,7 @@ Services throw; one `@RestControllerAdvice` maps to ProblemDetail (`application/
 
 ### The filter engine (`filter`)
 ```java
-public record FilterDefinition(String key, String label, FilterSource source) {}  // AE column or attribute type table
+public record FilterDefinition(String type, FilterSource source) {}  // AE column or attribute type table
 
 public interface ScreenFilters {
     String screen();                       // "attribute-tagging"
@@ -170,21 +170,21 @@ public class AttributeTaggingFilters implements ScreenFilters {
     public String screen() { return "attribute-tagging"; }
     public List<FilterDefinition> definitions() {
         return List.of(
-            aeColumn("aeId", "AE ID", "aeId"),
-            aeColumn("aeName", "AE Name", "aeId"),          // option id = AE id, name = AE name
-            aeOwner("aeOwner", "AE Owner"),
-            attributeType("est", "EST"),
-            attributeType("risk", "Risks"),
-            attributeType("legalEntity", "Key Legal Entities"),
+            aeColumn("aeId", "aeId"),
+            aeColumn("aeName", "aeName"),
+            aeOwner("aeOwner"),
+            attributeType("est"),
+            attributeType("risk"),
+            attributeType("legalEntity"),
             // ... regulation, thirdParty, application,
-            aeColumn("businessArea", "Business Area", "businessArea"),
-            aeColumn("businessDivision", "Division", "businessDivision")
+            aeColumn("businessArea", "businessArea"),
+            aeColumn("businessDivision", "businessDivision")
             // ... model, archerRiskUnit, costCenter, location, product
         );
     }
 }
 ```
-`FilterSpecificationBuilder.build(screen, filters)` turns `{ filters }` into a `Specification<AeEntity>`: `IN (...)` for AE columns, `EXISTS` on ACTIVE tags for attribute types, unknown key → `ValidationException`.
+`FilterSpecificationBuilder.build(screen, filters)` turns `{ filters }` into a `Specification<AeEntity>`: `IN (...)` for AE columns, `EXISTS` on ACTIVE tags for attribute types, unknown type → `ValidationException`.
 
 ### Example flow: Update (`PUT /aes/{aeId}/attributes`)
 1. `AttributeTaggingController.updateAeAttributes` → `TaggingService.update(aeId, request, currentUser.get())`.
@@ -203,15 +203,16 @@ public class AttributeTaggingFilters implements ScreenFilters {
 
 ## Filters are screen-based (reuse for new screens)
 - The filter APIs and shapes are the same on every screen; only the list of dropdowns changes. Build them once, generically:
-  - a `FilterDefinition` per dropdown: `key`, `label`, and its source (an AE-table column, or an attribute type's table);
+  - a `FilterDefinition` per dropdown: `type` and its source (an AE-table column, or an attribute type's table);
   - a `ScreenFilters` bean per screen (in `filter`) listing its `FilterDefinition`s in screen order;
   - one `FilterService` (in `service`) that builds the `/filters` response (cached per screen) and turns `{ filters }` into a JPA `Specification` from those definitions.
 - A new screen adds its `ScreenFilters` and card mapping; it never copies the filter code.
 
 ## Filtering (API 1 and 2)
-- Filters (16, every one a plain list): `aeId`, `aeName`, `aeOwner` (preselected by the UI), `businessArea`, `businessDivision` from the **AE table**, plus one per attribute type (`est`, `risk`, `legalEntity`, `regulation`, `thirdParty`, `application`, `model`, `archerRiskUnit`, `costCenter`, `location`, `product`) from **that type's table**. Unknown key → 400.
-- `filters` is a map of filter key → selected values. **OR within a key, AND across keys.**
-- `aeId` and `aeName` values are AE ids; `aeOwner` values are user ids.
+- Filters (16, every one a plain list): `aeId`, `aeName`, `aeOwner` (preselected by the UI), `businessArea`, `businessDivision` from the **AE table**, plus one per attribute type (`est`, `risk`, `legalEntity`, `regulation`, `thirdParty`, `application`, `model`, `archerRiskUnit`, `costCenter`, `location`, `product`) from **that type's table**. Unknown type → 400.
+- `/filters` returns `[{ type, options: [text, …] }]`: plain text, sorted, no duplicates, no labels (the UI holds them).
+- `filters` is a map of filter type → selected text, the same text as in `options`. **OR within a type, AND across types.** Match on the text (`IN (...)` on the column, or `EXISTS` on the tagged attribute's name).
+- `aeId` values are AE ids; `aeName` values are AE names (a name shared by several AEs matches all of them); `aeOwner` values are owner names.
 - AE-table filters → `IN (...)` on the column. If an AE's owners are stored as several rows (an AE can have several owners), filter `aeOwner` with an `EXISTS` subquery.
 - Attribute-type filters → an **`EXISTS` subquery**: the AE has an `ACTIVE` tag of that type with one of the picked values. Never a join (joins duplicate rows and break paging).
 - Build queries with JPA `Specification`s; never concatenate SQL/JPQL.
@@ -260,7 +261,7 @@ public class AttributeTaggingFilters implements ScreenFilters {
 - Turn on response compression (`server.compression.enabled=true`).
 
 ## Tests
-- Filters: OR within a key, AND across keys, `aeOwner`, an attribute-type filter (only ACTIVE tags match), unknown key → 400, empty result → 200.
+- Filters: OR within a key, AND across keys, `aeOwner`, an attribute-type filter (only ACTIVE tags match), unknown type → 400, empty result → 200.
 - Detail: tagged and recommended don't overlap; counts; `canEdit` only for the owner holding the lock.
 - All Available: top level only; children endpoint; `hasChildren` correct; flat types.
 - Lock: owner gets it; second owner → 409; non-owner → 403; expiry after 15 min; renew; concurrent take → only one wins; DELETE by non-holder is a no-op.

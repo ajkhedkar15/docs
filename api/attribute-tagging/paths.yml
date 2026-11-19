@@ -3,10 +3,11 @@ filters:
     tags: [AttributeTagging]
     summary: 1. All dropdowns and their values
     description: |
-      Every filter in screen order, each a plain list of values. 5 come from the AE table; the
-      other 11 are the attribute types, each with every taggable value from that type's table
-      (2,000+ each). The same for every user, so the server caches it. Typing in a dropdown narrows
-      its options in the browser; there is no search call. The "Who are you?" screen uses the aeOwner options.
+      Every filter in screen order as { type, options }, where options is a plain list of text,
+      sorted, without duplicates. 5 come from the AE table; the other 11 are the attribute types,
+      each with every taggable value from that type's table (2,000+ each). The same for every user,
+      so the server caches it. Typing in a dropdown narrows its options in the browser; there is
+      no search call. The UI holds the label shown for each type.
     operationId: getFilters
     responses:
       '200':
@@ -18,26 +19,18 @@ filters:
               items:
                 $ref: './schemas.yml#/AttributeTaggingFilter'
             example:
-              - key: aeOwner
-                label: AE Owner
-                options:
-                  - id: '12345'
-                    name: John Smith
-              - key: aeId
-                label: AE ID
-                options:
-                  - id: '000000004561'
-                    name: '000000004561'
-              - key: est
-                label: EST
-                options:
-                  - id: EST-0042
-                    name: Fund Accounting
-              - key: legalEntity
-                label: Key Legal Entities
-                options:
-                  - id: LE-UK-01
-                    name: Example Bank UK Ltd
+              - type: aeOwner
+                options: [Jane Doe, John Smith]
+              - type: aeId
+                options: ['000000004561', '000000004562']
+              - type: aeName
+                options: [Fund Accounting Operations, State Street IM Systematic Equity]
+              - type: est
+                options: [Custody, Fund Accounting]
+              - type: legalEntity
+                options: [Example Bank UK Ltd, Example Bank US Inc]
+              - type: businessDivision
+                options: [Corporate Divisions]
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
 
@@ -47,7 +40,8 @@ aesSearch:
     summary: 2. AE list for the selected filters
     description: |
       The server applies the filters and returns one page of cards, sorted by AE name.
-      The screen opens with filters = { aeOwner: [the user's id] }. {} returns all AEs.
+      The screen opens with filters = { aeOwner: [the user's name] }. {} returns all AEs.
+      Values are the same text as in the filters options.
     operationId: searchAes
     parameters:
       - $ref: '../common/parameters.yml#/Page'
@@ -66,14 +60,14 @@ aesSearch:
               summary: Screen opens - my AEs
               value:
                 filters:
-                  aeOwner: ['12345']
+                  aeOwner: [John Smith]
             filtered:
               summary: User picked more filters
               value:
                 filters:
-                  aeOwner: ['12345']
-                  est: [EST-0042]
-                  legalEntity: [LE-UK-01, LE-US-02]
+                  aeOwner: [John Smith]
+                  est: [Fund Accounting]
+                  legalEntity: [Example Bank UK Ltd, Example Bank US Inc]
                   businessDivision: [Corporate Divisions]
             allAes:
               summary: No filters - all AEs
