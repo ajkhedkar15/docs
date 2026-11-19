@@ -2,12 +2,7 @@
 
 OpenAPI 3.0 specification for the Attribute Tagging screen.
 
-| File | What it is |
-|---|---|
-| [`openapi.yml`](openapi.yml) | Root: overview, auth, list of paths |
-| [`attribute-tagging/`](attribute-tagging/) | The screen's endpoints and schemas |
-| [`common/`](common/) | Shared schemas, parameters and error responses |
-| [`dist/openapi.bundled.yml`](dist/openapi.bundled.yml) | **Generated** single file for Swagger UI and code generation. Don't edit by hand. |
+The whole API is one file: [`openapi.yml`](openapi.yml). Open it directly in Swagger, the 42Crunch preview or a code generator; there is nothing to build.
 
 ## The APIs (under `/api/v1/attribute-tagging`)
 
@@ -23,7 +18,7 @@ OpenAPI 3.0 specification for the Attribute Tagging screen.
 
 ## How the screen uses them
 
-1. **Open:** API 1 (dropdowns), API 7 (saved filters), and API 2 with `{"filters":{"aeOwner":["<my id>"]}}` (my AEs).
+1. **Open:** API 1 (dropdowns), API 7 (saved filters), and API 2 with `{"filters":{"aeOwner":["<my name>"]}}` (my AEs).
 2. **Filter:** the user picks dropdown values → API 2. Typing in a dropdown only narrows its options in the browser.
 3. **Open an AE:** API 3. Each of the 11 sections shows Tagged and Suggested to Add, with its recommendation count.
 4. **Edit:** API 4 `POST` takes the lock. If another owner has it → 409, and the screen shows "Currently being modified by …".
@@ -50,22 +45,21 @@ Filters are screen-based: a new screen keeps the same APIs and shapes and only d
 
 | Part | Same on every screen | Per screen |
 |---|---|---|
-| `GET /<screen>/filters` | Response: `[{ key, label, options: [{ id, name }] }]`, plain lists, cached | Which dropdowns, their labels and where their values come from |
-| `POST /<screen>/aes/search` | Body `{ filters: { <key>: [ids] } }`; OR within a key, AND across keys; `{}` = everything; unknown key → 400; paged `{ page, pageSize, totalRecords, totalPages, items }` | What a card shows (`items`) |
+| `GET /<screen>/filters` | Response: `[{ type, options: [text, …] }]`, plain lists (sorted, no duplicates), cached | Which dropdowns, and where their values come from |
+| `POST /<screen>/aes/search` | Body `{ filters: { <type>: [text, …] } }` (the same text as in options); OR within a type, AND across types; `{}` = everything; unknown type → 400; paged `{ page, pageSize, totalRecords, totalPages, items }` | What a card shows (`items`) |
 | `/<screen>/saved-filters` | `GET` / `POST { name, filters }` / `DELETE`; max 3 per user | — |
-| Option | `id` is sent back, `name` is shown; same text when there's no separate id | — |
+| Labels | Not in the API: the UI holds the label for each `type` (for example `est` → "EST") | The screen's labels |
 | Typing in a dropdown | Narrows the options in the browser; no search API | — |
 
-Shared shapes are in `common/schemas.yml` (`Filter`, `Option`, `Filters`, `PageMeta`). A screen adds its own `<Screen>FilterKey` enum and `<Screen>Filter` that uses it, like `AttributeTaggingFilterKey` and `AttributeTaggingFilter` in `attribute-tagging/schemas.yml`. Never reuse a name from `common/` (tools that merge files by schema name can't resolve duplicates).
+Shared shapes are under `components/schemas` in `openapi.yml` (`Filter`, `Filters`, `PageMeta`, `Person`, `ErrorResponse`). A screen adds its own `<Screen>FilterType` enum and `<Screen>Filter` that uses it, like `AttributeTaggingFilterType` and `AttributeTaggingFilter`. Never reuse an existing schema name.
 
-**Adding a screen:** create `api/<screen>/paths.yml` and `schemas.yml`, copy the `filters`, `aesSearch` and `savedFilters` paths from Attribute Tagging, change the `<Screen>FilterKey` list and the card, add the paths and a tag to `openapi.yml`, then lint and bundle.
+**Adding a screen:** in `openapi.yml`, add a tag for it, copy the `filters`, `aes/search` and `saved-filters` paths from Attribute Tagging under `/<screen>/…`, add its `<Screen>FilterType` and card schemas, then lint.
 
 ## Working on the spec
 
 ```bash
-npx @redocly/cli lint map                                         # check for errors
-npx @redocly/cli bundle map -o api/dist/openapi.bundled.yml       # rebuild the single file
-npx swagger-ui-watcher api/openapi.yml                            # Swagger UI, live
+npx @redocly/cli lint map                    # check for errors
+npx swagger-ui-watcher api/openapi.yml       # Swagger UI, live
 ```
 
-Commit the rebuilt bundle with your change. The **API spec** GitHub Action fails a PR if the spec has errors or the bundle is out of date.
+The **API spec** GitHub Action lints `api/openapi.yml` on every PR and fails it if there are errors.

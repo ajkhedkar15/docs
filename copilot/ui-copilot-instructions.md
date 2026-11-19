@@ -13,7 +13,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 - Use the component library, router and styling already in `package.json`. Do not add a new UI library.
 
 ## The API spec is the contract
-- Generate types with `openapi-typescript` from the bundled spec (`api/dist/openapi.bundled.yml`) into `src/api/generated.ts`. **Never hand-write API types** or edit the generated file.
+- Generate types with `openapi-typescript` from the spec (`api/openapi.yml`) into `src/api/generated.ts`. **Never hand-write API types** or edit the generated file.
 - Call only the endpoints in the spec. If something is missing, flag that the spec needs changing.
 - All calls go through one API client in `src/api/` that adds the `X-User-Id` header (later the bearer token) and parses ProblemDetail errors.
 
@@ -21,7 +21,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 | # | Endpoint | When |
 |---|---|---|
 | 1 | `GET /filters` | On open: every dropdown with all its values |
-| 2 | `POST /aes/search?page&pageSize` | On open and on every filter change: `{ filters: { <key>: [values] } }` |
+| 2 | `POST /aes/search?page&pageSize` | On open and on every filter change: `{ filters: { <type>: [text, …] } }` |
 | 3 | `GET /aes/{aeId}` | Opening an AE |
 | 4 | `POST /aes/{aeId}/lock` / `DELETE` | Edit / Done, Cancel, or switching AE |
 | 5 | `PUT /aes/{aeId}/attributes` | Update button |
@@ -35,10 +35,10 @@ The **Attribute Tagging** screen of myAuditPlan:
 - Keep this in `src/auth/` so it can be swapped for JWT later.
 
 ## Filter bar and list
-- Draw the dropdowns from API 1, in its order. Show each option's `name`; send its `id` (AE ids for AE ID / AE Name, user ids for AE Owner).
+- Draw the dropdowns from API 1, in its order. Each is `{ type, options }` and `options` is a plain list of text: show it as is and send the same text back. The UI holds the label for each `type` (for example `est` → "EST", `legalEntity` → "Key Legal Entities") in one map.
 - **Typing in a dropdown only narrows its options in the browser** (for example typing "2000" in AE ID shows 2000, 20001, 20002…). There is no search API.
 - Every dropdown can have thousands of options (AE ID, AE Name, and 2,000+ per attribute type): always use a virtualized list.
-- Filter state = `{ <key>: [values] }`, exactly the API's `filters`. Initial state: `{ aeOwner: [<my id>] }`. Keep it in the URL query string.
+- Filter state = `{ <type>: [text, …] }`, exactly the API's `filters`. Initial state: `{ aeOwner: [<my name>] }`. Keep it in the URL query string.
 - Every change → API 2 with the new `filters`, page 1. Show chips for selected values; "Clear All Filters" → `{}` (all AEs).
 - Cards: AE name, AE ID, business area, last modified, "N Recommendations", description. `isOwner` → Edit option; otherwise View.
 - Paging from API 2 (`page`, `totalPages`).
