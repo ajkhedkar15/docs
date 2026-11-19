@@ -1,14 +1,15 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan API Spec
-  version: 2.1.0
+  version: 3.0.0
   description: |
     Open API specification for myAuditPlan (mAP).
 
     ## Structure
     - **Shared** endpoints are at the root: current user, core AE info, saved filters, lookups.
     - **Each screen** has its own prefix (`/attribute-tagging`, later `/risk-assessment`, `/audit-plan` ...)
-      and the same five kinds of endpoint: list, search, filters, detail, edit.
+      and the same endpoints: `POST /aes/search` (list and filter), `GET /filters`,
+      `GET /aes/{aeId}` (detail), and edit endpoints under `/aes/{aeId}/...`.
 
     ## Who is the caller
     - **Now (temporary):** the UI shows a "Who are you?" screen. The user picks themselves from
@@ -31,16 +32,22 @@ info:
     ## Search semantics
     Values inside one criterion are OR'ed; different criteria are AND'ed.
     `EXCLUDE` returns AEs that have none of the values.
+    For `aeId` and `aeName` the values are AE ids (names can repeat).
+
+    ## Filtering in the browser
+    Each card has `filterValues`: the codes for every filter of the screen except aeId and aeName.
+    The browser filters with `aeId`, `aeName`, `aeDescription` (search text) and `filterValues` only,
+    and must give the same result as the server.
 
     ## Paging
     `page` starts at 1; `pageSize` defaults to 1000 and is capped at 1000.
     `aeId` is always added to the sort as a tiebreaker.
 
     ## Screen flow (same for every screen)
-    1. `GET /<screen>/filters?scope=MINE` and `GET /<screen>/aes?scope=MINE&page=1` on open.
+    1. On open: `GET /<screen>/filters?scope=MINE` and `POST /<screen>/aes/search?page=1` with `{}`.
     2. Load the remaining pages until `lastPage=true`, then filter in the browser.
-       Until then, use `POST /<screen>/aes/search`.
-    3. "All AEs": the same calls with `scope=ALL`.
+       Until then, send the filters to `POST /<screen>/aes/search`.
+    3. "All AEs": the same calls with scope `ALL`.
     4. Click an AE: `GET /<screen>/aes/{aeId}`. Edit only when `canEdit` is true.
   license:
     name: Proprietary
@@ -53,7 +60,7 @@ security:
 
 tags:
   - name: Shared
-    description: Current user, core AE info, saved filters and lookups used by every screen
+    description: Users, current user, saved filters and lookups used by every screen
   - name: AttributeTagging
     description: Attribute Tagging screen - review and assign Apps, Models and Third Party tags
 
@@ -63,24 +70,18 @@ paths:
     $ref: './shared/paths.yml#/users'
   /me:
     $ref: './shared/paths.yml#/me'
-  /auditable-entities/{aeId}:
-    $ref: './shared/paths.yml#/aeById'
   /saved-filters:
     $ref: './shared/paths.yml#/savedFilters'
   /saved-filters/{id}:
     $ref: './shared/paths.yml#/savedFilterById'
-  /lookups/{type}:
+  /lookups/{key}:
     $ref: './shared/paths.yml#/lookups'
 
   # ---------- Attribute Tagging ----------
-  /attribute-tagging/aes:
-    $ref: './attribute-tagging/paths.yml#/aes'
   /attribute-tagging/aes/search:
     $ref: './attribute-tagging/paths.yml#/aesSearch'
   /attribute-tagging/filters:
     $ref: './attribute-tagging/paths.yml#/filters'
-  /attribute-tagging/filters/{key}/options:
-    $ref: './attribute-tagging/paths.yml#/filterOptions'
   /attribute-tagging/aes/{aeId}:
     $ref: './attribute-tagging/paths.yml#/aeDetail'
   /attribute-tagging/aes/{aeId}/tags:

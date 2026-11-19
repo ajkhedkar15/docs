@@ -20,7 +20,7 @@ Typical size: about 1,000–2,500 AEs in total. A single user owns far fewer.
 com.map
 ├── common            security (UserContext, CurrentUser), search engine (Specification builder),
 │                     paging, error handling, saved filters, lookups
-├── ae                AuditableEntity, owners, AE attributes, shared /auditable-entities/{aeId}
+├── ae                AuditableEntity, owners, AE attributes
 ├── attributetagging  screen module
 ├── riskassessment    screen module
 └── <screen>          one package per screen
@@ -32,13 +32,12 @@ Paths are prefixed with the screen name, for example `/api/v1/attribute-tagging`
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /aes?scope=MINE\|ALL&page&pageSize&sort` | Cards for the screen, paged |
-| `POST /aes/search` | Same list with a `SearchRequest` body (`scope`, `searchText`, `criteria[]`) |
-| `GET /filters?scope=MINE\|ALL` | Filter definitions and dropdown options |
+| `POST /aes/search?page&pageSize&sort` | The only list endpoint. Body `SearchRequest` (`scope`, `searchText`, `criteria[]`); `{}` = the caller's own AEs |
+| `GET /filters?scope=MINE\|ALL` | Filter definitions and every option in that scope |
 | `GET /aes/{aeId}` | Screen-specific detail of one AE |
 | `PUT/POST/PATCH /aes/{aeId}/...` | Edit actions (owners only) |
 
-Attribute Tagging's edit endpoint is `PUT /attribute-tagging/aes/{aeId}/tags` (replaces Application, Model and Third Party tags; includes `version` for 409 on concurrent edits). Edit forms get their choices from `GET /lookups/{type}`.
+Attribute Tagging's edit endpoint is `PUT /attribute-tagging/aes/{aeId}/tags` (replaces Application, Model and Third Party tags; includes `version` for 409 on concurrent edits). Edit forms get their choices from `GET /lookups/{key}` (for example `/lookups/keyApplication`).
 
 Each screen implements a `ScreenDefinition` bean that declares its filters (from the shared `FilterField` catalog), its card mapping, default sort and any extra data it needs. The generic search service, controller logic, paging, scope and `canEdit` come from `common`. **Adding a screen must not mean copying the search code.**
 
@@ -69,15 +68,20 @@ Each screen implements a `ScreenDefinition` bean that declares its filters (from
 - Paging: `page` starts at **1** (`spring.data.web.pageable.one-indexed-parameters=true` or convert explicitly). `pageSize` defaults to 1000 and must be capped at **1000**. Always append `aeId` to the sort as a tiebreaker.
 - Load a page in **two queries**: (1) the page of AEs, (2) their attributes, owners and counts with `WHERE ae_id IN (:ids)`, then group in Java. Never use `JOIN FETCH` on collections with paging, and never cause N+1 queries.
 - An empty result is **200** with an empty list, not 404.
+- List responses are `{ page, pageSize, totalRecords, totalPages, lastPage, items }` on every screen.
+- Every card has **`filterValues`**: a map from filter key to an array of codes, for **every** filter of the screen except `aeId` and `aeName`, including single-value fields such as `businessArea` (as a one-item array). The UI filters with only `aeId`, `aeName`, `aeDescription` and `filterValues`, so a filter missing from this map silently breaks browser filtering. Add a test that each screen's card contains every filter key.
+- Detail responses carry the same keys as `attributes`, but as `{ value, label }` options.
+- For the `aeId` and `aeName` filters the values are AE ids (names can repeat).
+- Lookups for edit forms are `GET /lookups/{key}` where `key` is the filter key (for example `keyApplication`).
 
 ## Filter options (`/filters`)
 - Options are `DISTINCT` values (with counts) from the AEs in the requested scope, read from the database, never from a partial page.
 - Each option has `value` (a code or id sent back in criteria) and `label` (display text). For AE Name, `value` is the AE id because names repeat.
 - Cache with `@Cacheable`: key `screen + ":ALL"` for `scope=ALL` (shared by all users) and `screen + ":MINE:" + userId` for `scope=MINE`. Evict the relevant entries when an edit changes AE data.
-- Filters with more than about 500 options are returned as `TYPEAHEAD` with no options and served by a typeahead endpoint.
+- Return every option; there is no typeahead (the largest list is about 2,500 AE names).
 
 ## Response conventions
-- Page envelope: `{ page, pageSize, totalRecords, totalPages, lastPage, <items> }`.
+- Page envelope: `{ page, pageSize, totalRecords, totalPages, lastPage, items }`.
 - Errors use Spring `ProblemDetail` (`application/problem+json`) with `status`, `title`, `detail`, and `errors[]` (`field`, `message`) for validation. Use a single `@RestControllerAdvice`; never return stack traces.
 - JSON fields in camelCase. Dates and times in ISO-8601 (UTC for timestamps). AE ids are **strings** (they have leading zeros).
 - Arrays are never null; return `[]`.
@@ -108,3 +112,4 @@ For every screen and every change, cover at least:
 - Don't use joins for multi-value filters or `JOIN FETCH` with paging.
 - Don't return 404 for an empty list, or 403/404 for viewing an AE the user doesn't own (viewing is allowed).
 - Don't change the API without updating the spec.
+- Don't document 500 on each operation; unexpected errors are handled once by the `@RestControllerAdvice`.

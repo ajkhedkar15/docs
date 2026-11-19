@@ -51,26 +51,6 @@ me:
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
 
-aeById:
-  get:
-    tags: [Shared]
-    summary: Core info of one Auditable Entity
-    description: Any user can view any AE. Screens use their own detail endpoint for screen-specific data.
-    operationId: getAuditableEntity
-    parameters:
-      - $ref: '../common/parameters.yml#/AeId'
-    responses:
-      '200':
-        description: The AE
-        content:
-          application/json:
-            schema:
-              $ref: '../common/schemas.yml#/AeSummary'
-      '401':
-        $ref: '../common/responses.yml#/Unauthorized'
-      '404':
-        $ref: '../common/responses.yml#/NotFound'
-
 savedFilters:
   get:
     tags: [Shared]
@@ -106,11 +86,11 @@ savedFilters:
           example:
             screen: attribute-tagging
             name: UK legal entities
-            scope: ALL
-            criteria:
-              - field: keyLegalEntity
-                operator: INCLUDE
-                values: [LE-UK-01]
+            search:
+              scope: ALL
+              criteria:
+                - field: keyLegalEntity
+                  values: [LE-UK-01]
     responses:
       '201':
         description: Created
@@ -171,17 +151,17 @@ savedFilterById:
 lookups:
   get:
     tags: [Shared]
-    summary: Reference data for edit forms
+    summary: All possible values of one list, for edit forms
     description: |
-      All possible values of a list (for example every application), not only those already
-      used on AEs. Used when assigning tags. Filter dropdowns use the screen's /filters instead.
+      Every value that can be assigned (for example every application), not only those already
+      used on AEs. Filter dropdowns use the screen's /filters instead.
     operationId: getLookup
     parameters:
-      - name: type
+      - name: key
         in: path
         required: true
         schema:
-          $ref: '../common/schemas.yml#/LookupType'
+          $ref: '../common/schemas.yml#/FilterKey'
       - name: q
         in: query
         required: false
@@ -198,7 +178,7 @@ lookups:
             schema:
               type: array
               items:
-                $ref: '../common/schemas.yml#/FilterOption'
+                $ref: '../common/schemas.yml#/Option'
             example:
               - value: APP-221
                 label: APP-221 Fund Ledger

@@ -48,10 +48,10 @@ Each screen is the shared `AeSearchPage` plus its own card, detail page and edit
   onOpen={(ae) => navigate(`/attribute-tagging/${ae.aeId}`)}
 />
 ```
-Each screen's endpoints are under `/api/v1/<screen>/...` and have the same shape: `GET /aes`, `POST /aes/search`, `GET /filters`, `GET /aes/{aeId}`, plus edit endpoints. For Attribute Tagging the edit is `PUT /attribute-tagging/aes/{aeId}/tags`; the form's choices come from `GET /lookups/{type}`, and it sends back `version` (409 means someone else changed it: reload and retry).
+Each screen's endpoints are under `/api/v1/<screen>/...` and have the same shape: `POST /aes/search` (the only list endpoint), `GET /filters`, `GET /aes/{aeId}`, plus edit endpoints. List responses are always `{ page, pageSize, totalRecords, totalPages, lastPage, items }`. For Attribute Tagging the edit is `PUT /attribute-tagging/aes/{aeId}/tags`; the form's choices come from `GET /lookups/{key}` (for example `/lookups/keyApplication`), and it sends back `version` (409 means someone else changed it: reload and retry).
 
 ## Data loading (inside AeSearchPage)
-1. On open, fetch in parallel: `GET /filters?scope=MINE`, `GET /aes?scope=MINE&page=1&pageSize=1000`, and saved filters for the screen.
+1. On open, fetch in parallel: `GET /filters?scope=MINE`, `POST /aes/search?page=1&pageSize=1000` with body `{}`, and saved filters for the screen.
 2. If a page returns `lastPage: false`, fetch the next pages in the background (`useInfiniteQuery`) until `lastPage: true`. Then the data set is **complete**.
 3. **When complete, filter in the browser** with no API call. Until complete, send the current filters to `POST /aes/search`.
 4. When the user switches to **All AEs**, do the same with `scope=ALL` (filters and list).
@@ -59,18 +59,19 @@ Each screen's endpoints are under `/api/v1/<screen>/...` and have the same shape
 
 ## Filter rules (must match the backend exactly)
 - Dropdowns and their options come **only from `/filters`**. Never build options from the loaded rows, which may be incomplete.
-- Show each option's `label`; send its `value`. For AE Name, the value is the AE id because names repeat.
+- Show each option's `label`; send its `value`. For AE ID and AE Name, the value is the AE id because names repeat.
+- Show labels for codes on cards by looking them up in the `/filters` options (keep a `key → value → label` map). Detail pages already get labels in `attributes`.
 - Values inside one filter are **OR**; different filters are **AND**. `EXCLUDE` means the AE has none of the selected values.
-- Multi-value fields (in `ae.attributes`) match if **any** of their values is selected.
+- Filter only on `aeId`, `aeName`, `aeDescription` (search text) and the card's **`filterValues`** map. For `aeId` and `aeName` the selected values are AE ids, so compare with `ae.aeId`. Every other filter key is in `filterValues` as an array, and matches if **any** of its codes is selected. A key missing from `filterValues` means the AE has no value.
 - `searchText` is a case-insensitive contains match, debounced by 250 ms.
-- The search box inside a dropdown filters that dropdown's options locally. `TYPEAHEAD` filters call the typeahead endpoint, debounced by 250 ms.
+- `/filters` returns every option for every filter (there is no typeahead). The search box inside a dropdown filters that dropdown's options locally.
 - Put the local filtering in one pure function (`applyFilters(items, criteria, searchText)`) with unit tests, because its results must equal the server's.
 
 ## Filter state and UI
-- Filter state = `{ scope, searchText, criteria[] }`, the same shape as the API `SearchRequest`.
+- Filter state = `{ scope, searchText, criteria[] }`, exactly the API `SearchRequest`. Saved filters store it as `search`.
 - Keep it in the **URL query string** so views can be bookmarked and shared, and so the back button works.
 - Show selected values as chips (`<Filter label>: <option label> ✕`). "Clear All Filters" resets everything except scope.
-- "Add to Saved Filters" saves `{ screen, name, scope, searchText, criteria }`. Choosing a saved filter loads it into state.
+- "Add to Saved Filters" saves `{ screen, name, search }`. Choosing a saved filter loads `search` into state.
 
 ## Editing and permissions
 - Each AE has `canEdit`, computed by the server. **Use only `canEdit`** to decide whether to show edit controls. Never work it out by comparing owners on the client.
@@ -93,7 +94,7 @@ Each screen's endpoints are under `/api/v1/<screen>/...` and have the same shape
 - Dropdowns, chips and cards must work with the keyboard and have accessible labels.
 
 ## Tests
-- Unit tests for `applyFilters`: OR within a filter, AND across, INCLUDE vs EXCLUDE, multi-value attributes, search text.
+- Unit tests for `applyFilters`: OR within a filter, AND across, INCLUDE vs EXCLUDE, multi-value `filterValues`, missing keys, aeId/aeName by id, search text.
 - Component tests (React Testing Library): local filtering vs server search before the data is complete, chips and Clear All, read-only display when `canEdit` is false, and the 403 message.
 
 ## Adding a new screen (checklist)
