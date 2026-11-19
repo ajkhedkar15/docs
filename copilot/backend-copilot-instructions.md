@@ -27,6 +27,8 @@ There is **no free-text search**. Typing in a dropdown or a list's search box on
 ## The 11 attribute types
 In screen order: `est` (Est), `risk` (Risks), `legalEntity` (Key Legal Entities), `regulation` (Key Regulations), `thirdParty` (Key Third Parties), `application` (Key Applications), `model` (Key Models), `archerRiskUnit` (Archer Risk Units), `costCenter` (General Ledger / Cost Centers), `location` (Locations), `product` (Products).
 
+**Data:** each type has **its own table**, with 2,000+ attributes each. Map the API's `type` to its table in one place (for example an enum → repository).
+
 **Hierarchies:** some types have parent and child attributes, possibly several levels deep (`parent_id` on the attribute). Others are flat.
 - `hasChildren` = the attribute has at least one child.
 - **Only attributes without children can be tagged.** API 5 rejects any other with 400.
@@ -45,15 +47,14 @@ com.map
 - Get the caller **only** through the `CurrentUser` interface. Never accept the user as a query parameter or body field.
 
 ## Filtering (API 1 and 2)
-- Filters: `aeOwner` (preselected by the UI), `aeId`, `aeName`, `legalEntity`, `businessArea`, `businessDivision`. Unknown key → 400.
+- Filters: `aeId`, `aeName`, `aeOwner` (preselected by the UI), `businessArea`, `businessDivision`. **All from the AE table**, each a plain list of distinct values. Unknown key → 400.
 - `filters` is a map of filter key → selected values. **OR within a key, AND across keys.**
 - `aeId` and `aeName` values are AE ids; `aeOwner` values are user ids.
-- `aeId`, `aeName`, `businessArea`, `businessDivision` → `IN (...)` on the AE columns.
-- `aeOwner` and `legalEntity` → **`EXISTS` subqueries** on the ownership / attribute tables, never joins (joins duplicate rows and break paging). Only `ACTIVE` attribute rows count. A parent legal entity value also matches AEs tagged with any of its descendants.
+- Every filter → `IN (...)` on the AE table's column. If an AE's owners are stored as several rows (an AE can have several owners), filter `aeOwner` with an `EXISTS` subquery, never a join (joins duplicate rows and break paging).
 - Build queries with JPA `Specification`s; never concatenate SQL/JPQL.
 - Load a page in **two queries**: the page of AEs, then what the cards need for those ids (`WHERE ae_id IN (:ids)`): recommendation counts, owners for `isOwner`, current locks. No N+1, no `JOIN FETCH` with paging.
 - An empty result is **200** with `items: []`.
-- `/filters`: `SELECT DISTINCT` per filter across all AEs, `@Cacheable`, evicted when API 5 changes attributes.
+- `/filters`: `SELECT DISTINCT` per column of the AE table, `@Cacheable`. Evict when AE data changes.
 
 ## AE detail (API 3)
 - 11 sections in screen order, each with `label`, `description`, `recommendationCount`, `tagged` and `recommended`.
@@ -96,7 +97,7 @@ com.map
 - Turn on response compression (`server.compression.enabled=true`).
 
 ## Tests
-- Filters: OR within a key, AND across keys, `aeOwner`, `legalEntity` parent matches children, unknown key → 400, empty result → 200.
+- Filters: OR within a key, AND across keys, `aeOwner`, unknown key → 400, empty result → 200.
 - Detail: tagged and recommended don't overlap; counts; `canEdit` only for the owner holding the lock.
 - All Available: top level only; children endpoint; `hasChildren` correct; flat types.
 - Lock: owner gets it; second owner → 409; non-owner → 403; expiry after 15 min; renew; concurrent take → only one wins; DELETE by non-holder is a no-op.

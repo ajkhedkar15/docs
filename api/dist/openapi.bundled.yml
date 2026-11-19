@@ -49,6 +49,8 @@ info:
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
     ## Filters
+    AE ID, AE Name, AE Owner (preselected), Business Area and Division - all from the AE table,
+    each a plain list of values.
     Values inside one filter are OR'ed; different filters are AND'ed. There is no free-text search:
     typing inside a dropdown only narrows that dropdown's options, in the browser.
   license:
@@ -92,11 +94,11 @@ paths:
                   options:
                     - value: '000000004561'
                       label: '000000004561'
-                - key: legalEntity
-                  label: Key Legal Entities
+                - key: businessArea
+                  label: Business Area
                   options:
-                    - value: LE-UK-01
-                      label: Example Bank UK Ltd
+                    - value: Corporate Divisions - Enterprise Risk Management
+                      label: Corporate Divisions - Enterprise Risk Management
         '401':
           $ref: '#/components/responses/Unauthorized'
   /attribute-tagging/aes/search:
@@ -133,9 +135,8 @@ paths:
                   filters:
                     aeOwner:
                       - '12345'
-                    legalEntity:
-                      - LE-UK-01
-                      - LE-US-02
+                    businessArea:
+                      - Corporate Divisions - Enterprise Risk Management
                     businessDivision:
                       - Corporate Divisions
               allAes:
@@ -350,9 +351,9 @@ paths:
         - AttributeTagging
       summary: 6a. All Available - the top-level attributes of one type
       description: |
-        Every top-level attribute of the type (parentId = null). For types without a hierarchy that
-        is every attribute. The same for every AE, so the server caches it and the UI loads it once,
-        when a section is opened in edit mode. The UI hides the ones already tagged or recommended;
+        Every top-level attribute of the type (parentId = null), from that type's own table. For types
+        without a hierarchy that is every attribute; expect 2,000+ per type. The same for every AE, so
+        the server caches it and the UI loads it once, when a section is opened in edit mode. The UI hides the ones already tagged or recommended;
         its search box filters this list in the browser.
       operationId: getAttributes
       parameters:
@@ -454,10 +455,10 @@ paths:
             schema:
               $ref: '#/components/schemas/SavedFilterRequest'
             example:
-              name: UK entities
+              name: ERM division
               filters:
-                legalEntity:
-                  - LE-UK-01
+                businessDivision:
+                  - Corporate Divisions
       responses:
         '201':
           description: Saved
@@ -515,14 +516,12 @@ components:
     FilterKey:
       type: string
       description: |
-        The dropdowns on the screen, in screen order (AE Owner is preselected, not shown as a dropdown).
-        - aeOwner, aeId, aeName, businessArea, businessDivision - fields of the AE
-        - legalEntity - AEs tagged with that legal entity (a parent value also matches its children)
+        The dropdowns on the screen, in screen order. All come from the AE table and are plain lists
+        (no parent/child levels). AE Owner is preselected with the logged-in user.
       enum:
-        - aeOwner
         - aeId
         - aeName
-        - legalEntity
+        - aeOwner
         - businessArea
         - businessDivision
     Option:
@@ -554,7 +553,7 @@ components:
           example: Key Legal Entities
         options:
           type: array
-          description: Every value across all AEs
+          description: Every value across all AEs, as a plain list
           items:
             $ref: '#/components/schemas/Option'
     ErrorResponse:
@@ -588,9 +587,8 @@ components:
       example:
         aeOwner:
           - '12345'
-        legalEntity:
-          - LE-UK-01
-          - LE-US-02
+        businessArea:
+          - Corporate Divisions - Enterprise Risk Management
     PageMeta:
       type: object
       required:
@@ -719,7 +717,8 @@ components:
     Attribute:
       type: object
       description: |
-        One attribute. Some types are hierarchies: an attribute can have children, several levels deep.
+        One attribute. Each of the 11 types has its own table, with 2,000+ attributes each.
+        Some types are hierarchies: an attribute can have children, several levels deep.
         Only an attribute with no children (hasChildren = false) can be tagged. Picking one that has
         children opens the "Required Dependency" dialog, filled from the children endpoint, until the
         user reaches attributes without children. Types that are not hierarchies are all hasChildren = false.

@@ -27,14 +27,12 @@ Option:
 FilterKey:
   type: string
   description: |
-    The dropdowns on the screen, in screen order (AE Owner is preselected, not shown as a dropdown).
-    - aeOwner, aeId, aeName, businessArea, businessDivision - fields of the AE
-    - legalEntity - AEs tagged with that legal entity (a parent value also matches its children)
+    The dropdowns on the screen, in screen order. All come from the AE table and are plain lists
+    (no parent/child levels). AE Owner is preselected with the logged-in user.
   enum:
-    - aeOwner
     - aeId
     - aeName
-    - legalEntity
+    - aeOwner
     - businessArea
     - businessDivision
 
@@ -49,7 +47,7 @@ Filter:
       example: Key Legal Entities
     options:
       type: array
-      description: Every value across all AEs
+      description: Every value across all AEs, as a plain list
       items:
         $ref: '#/Option'
 
@@ -64,7 +62,7 @@ Filters:
       type: string
   example:
     aeOwner: ['12345']
-    legalEntity: [LE-UK-01, LE-US-02]
+    businessArea: [Corporate Divisions - Enterprise Risk Management]
 
 PageMeta:
   type: object

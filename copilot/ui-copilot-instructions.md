@@ -4,7 +4,7 @@
 The **Attribute Tagging** screen of myAuditPlan:
 
 1. The user lands on the screen and sees the **Auditable Entities (AEs) they own**: the AE Owner filter starts preselected with them.
-2. They pick values in the dropdown filters (AE ID, AE Name, Legal Entity, Business Area, Business Division) or a saved filter.
+2. They pick values in the dropdown filters (AE ID, AE Name, AE Owner, Business Area, Division; each a plain list) or a saved filter.
 3. They open an AE (it expands in the list) and see its **11 attribute type sections**: Est, Risks, Key Legal Entities, Key Regulations, Key Third Parties, Key Applications, Key Models, Archer Risk Units, General Ledger / Cost Centers, Locations, Products. Each shows its recommendation count; opened, it shows **Tagged to AE** and **Suggested to Add**, and in edit mode also **All Available**.
 4. An owner clicks **Edit** (takes the edit lock), **adds** or **removes** attributes in the browser, and clicks **Update** to save. Everyone else sees the AE view-only.
 
@@ -57,7 +57,7 @@ The **Attribute Tagging** screen of myAuditPlan:
 ## Editing
 1. **Edit** → API 4 `POST`. 200 → edit mode. 409 → show "Currently being modified by <name>" and stay view-only. 403 → view-only.
 2. **Keep the lock alive:** while in edit mode, call API 4 `POST` every **5 minutes** if the user has interacted in the last 15 minutes. The server expires the lock after 15 minutes without activity.
-3. **All Available:** when a section is opened in edit mode, load API 6 for its type (cached for the session; it is the same for every AE). Hide attributes already tagged or suggested. Show the count ("All Available (1998)") and use a virtualized list.
+3. **All Available:** when a section is opened in edit mode, load API 6 for its type (cached for the session; it is the same for every AE). Expect 2,000+ attributes per type: always use a virtualized list. Hide attributes already tagged or suggested. Show the count ("All Available (1998)").
 4. **Add** (from Suggested or All Available), in the browser only:
    - attribute with `hasChildren: false` → goes to Tagged, highlighted **green** ("New Attribute"), with a required **comment** ("why are you tagging this?");
    - attribute with `hasChildren: true` → open the **Required Dependency** dialog with API 6 `…/{attributeId}/children` (checkbox list, search, "Add All"). The user must pick at least one. Picked children that also have children open the dialog again, level by level, until every pick has no children. Only attributes without children are added to Tagged.

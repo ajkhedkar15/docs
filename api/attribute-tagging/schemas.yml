@@ -89,7 +89,8 @@ AttributeType:
 Attribute:
   type: object
   description: |
-    One attribute. Some types are hierarchies: an attribute can have children, several levels deep.
+    One attribute. Each of the 11 types has its own table, with 2,000+ attributes each.
+    Some types are hierarchies: an attribute can have children, several levels deep.
     Only an attribute with no children (hasChildren = false) can be tagged. Picking one that has
     children opens the "Required Dependency" dialog, filled from the children endpoint, until the
     user reaches attributes without children. Types that are not hierarchies are all hasChildren = false.

@@ -27,11 +27,11 @@ filters:
                 options:
                   - value: '000000004561'
                     label: '000000004561'
-              - key: legalEntity
-                label: Key Legal Entities
+              - key: businessArea
+                label: Business Area
                 options:
-                  - value: LE-UK-01
-                    label: Example Bank UK Ltd
+                  - value: Corporate Divisions - Enterprise Risk Management
+                    label: Corporate Divisions - Enterprise Risk Management
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
 
@@ -66,7 +66,7 @@ aesSearch:
               value:
                 filters:
                   aeOwner: ['12345']
-                  legalEntity: [LE-UK-01, LE-US-02]
+                  businessArea: [Corporate Divisions - Enterprise Risk Management]
                   businessDivision: [Corporate Divisions]
             allAes:
               summary: No filters - all AEs
@@ -301,9 +301,9 @@ savedFilters:
           schema:
             $ref: './schemas.yml#/SavedFilterRequest'
           example:
-            name: UK entities
+            name: ERM division
             filters:
-              legalEntity: [LE-UK-01]
+              businessDivision: [Corporate Divisions]
     responses:
       '201':
         description: Saved
@@ -351,9 +351,9 @@ attributesByType:
     tags: [AttributeTagging]
     summary: 6a. All Available - the top-level attributes of one type
     description: |
-      Every top-level attribute of the type (parentId = null). For types without a hierarchy that
-      is every attribute. The same for every AE, so the server caches it and the UI loads it once,
-      when a section is opened in edit mode. The UI hides the ones already tagged or recommended;
+      Every top-level attribute of the type (parentId = null), from that type's own table. For types
+      without a hierarchy that is every attribute; expect 2,000+ per type. The same for every AE, so
+      the server caches it and the UI loads it once, when a section is opened in edit mode. The UI hides the ones already tagged or recommended;
       its search box filters this list in the browser.
     operationId: getAttributes
     parameters:
