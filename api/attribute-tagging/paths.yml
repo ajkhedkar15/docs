@@ -1,69 +1,12 @@
-aesSearch:
-  post:
-    tags: [AttributeTagging]
-    summary: List, search and filter Attribute Tagging cards
-    description: |
-      The only list endpoint. An empty body {} returns all AEs.
-      The screen opens with criteria aeOwner = [the user's id] (the AE Owner filter preselected).
-
-      Filters on this screen - aeId, aeName, aeOwner, est, risk, keyLegalEntity, keyThirdParty,
-      keyApplication, businessArea, businessDivision, keyModel, archerRiskUnit, costCenter,
-      location, product, auditTeam.
-
-      Sort fields - aeName, aeId, businessArea, modifiedOn.
-    operationId: searchAttributeTaggingAes
-    parameters:
-      - $ref: '../common/parameters.yml#/Page'
-      - $ref: '../common/parameters.yml#/PageSize'
-      - $ref: '../common/parameters.yml#/Sort'
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '../common/schemas.yml#/SearchRequest'
-          examples:
-            myAes:
-              summary: Screen opens - AE Owner preselected with the user
-              value:
-                criteria:
-                  - field: aeOwner
-                    values: ['12345']
-            allAes:
-              summary: All AEs (owner filter removed)
-              value: {}
-            filtered:
-              summary: Several filters
-              value:
-                searchText: equity
-                criteria:
-                  - field: aeName
-                    values: ['000000004561', '000000004890']
-                  - field: keyLegalEntity
-                    values: [LE-UK-01]
-                  - field: costCenter
-                    operator: EXCLUDE
-                    values: [CC-9999]
-    responses:
-      '200':
-        description: A page of AEs (empty items if none match)
-        content:
-          application/json:
-            schema:
-              $ref: './schemas.yml#/AttributeTaggingPage'
-      '400':
-        $ref: '../common/responses.yml#/BadRequest'
-      '401':
-        $ref: '../common/responses.yml#/Unauthorized'
-
 filters:
   get:
     tags: [AttributeTagging]
-    summary: Filter dropdowns for Attribute Tagging
+    summary: 1. All dropdowns and their values
     description: |
-      Every value across ALL AEs, in screen order - not only the user's own AEs.
-      The response is the same for every user, so the server caches it once.
-    operationId: getAttributeTaggingFilters
+      Every filter in screen order, each with every value found across all AEs.
+      The same for every user, so the server caches it. Typing in a dropdown narrows its options
+      in the browser; there is no search call. The "Who are you?" screen uses the aeOwner options.
+    operationId: getFilters
     responses:
       '200':
         description: Filters in screen order
@@ -79,48 +22,206 @@ filters:
                 options:
                   - value: '12345'
                     label: John Smith
-                    count: 37
-              - key: aeName
-                label: AE Name
+              - key: aeId
+                label: AE ID
                 options:
                   - value: '000000004561'
-                    label: State Street IM Systematic Equity
-                    count: 1
+                    label: '000000004561'
               - key: keyLegalEntity
                 label: Key Legal Entities
                 options:
                   - value: LE-UK-01
                     label: Example Bank UK Ltd
-                    count: 12
+      '401':
+        $ref: '../common/responses.yml#/Unauthorized'
+
+aesSearch:
+  post:
+    tags: [AttributeTagging]
+    summary: 2. AE list for the selected filters
+    description: |
+      The server applies the filters and returns one page of cards, sorted by AE name.
+      The screen opens with filters = { aeOwner: [the user's id] }. {} returns all AEs.
+    operationId: searchAes
+    parameters:
+      - $ref: '../common/parameters.yml#/Page'
+      - $ref: '../common/parameters.yml#/PageSize'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              filters:
+                $ref: '../common/schemas.yml#/Filters'
+          examples:
+            screenOpens:
+              summary: Screen opens - my AEs
+              value:
+                filters:
+                  aeOwner: ['12345']
+            filtered:
+              summary: User picked more filters
+              value:
+                filters:
+                  aeOwner: ['12345']
+                  keyLegalEntity: [LE-UK-01, LE-US-02]
+                  costCenter: [CC-4410]
+            allAes:
+              summary: No filters - all AEs
+              value: {}
+    responses:
+      '200':
+        description: One page of AE cards (empty items if none match)
+        content:
+          application/json:
+            schema:
+              $ref: './schemas.yml#/AePage'
+            example:
+              page: 1
+              pageSize: 20
+              totalRecords: 37
+              totalPages: 2
+              items:
+                - aeId: '000000004561'
+                  aeName: State Street IM Systematic Equity
+                  aeDescription: Performs fund accounting services
+                  businessArea: Corporate Divisions - Enterprise Risk Management
+                  modifiedOn: '2026-10-11T14:21:00Z'
+                  recommendationCount: 4
+                  isOwner: true
+                  lockedBy:
+                    id: '12377'
+                    name: Jane Doe
+      '400':
+        $ref: '../common/responses.yml#/BadRequest'
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
 
 aeDetail:
   get:
     tags: [AttributeTagging]
-    summary: Attribute Tagging detail of one AE
-    description: Any user can view. canEdit decides whether the edit form is shown.
-    operationId: getAttributeTaggingAe
+    summary: 3. One AE with tagged, recommended and available attributes
+    description: Anyone can view. canEdit is true only for the owner who holds the lock.
+    operationId: getAe
     parameters:
       - $ref: '../common/parameters.yml#/AeId'
     responses:
       '200':
-        description: The AE with labelled attributes
+        description: The AE
         content:
           application/json:
             schema:
-              $ref: './schemas.yml#/AttributeTaggingDetail'
+              $ref: './schemas.yml#/AeDetail'
+            example:
+              aeId: '000000004561'
+              aeName: State Street IM Systematic Equity
+              aeDescription: Performs fund accounting services
+              businessArea: Corporate Divisions - Enterprise Risk Management
+              businessDivision: Corporate Divisions
+              aeOwners:
+                - id: '12345'
+                  name: John Smith
+                - id: '12377'
+                  name: Jane Doe
+              isOwner: true
+              lock:
+                lockedBy:
+                  id: '12377'
+                  name: Jane Doe
+                lockedOn: '2026-11-19T12:02:00Z'
+                expiresAt: '2026-11-19T12:17:00Z'
+              canEdit: false
+              modifiedOn: '2026-10-11T14:21:00Z'
+              modifiedBy:
+                id: '12345'
+                name: John Smith
+              attributeTypes:
+                - type: keyApplication
+                  label: Key Applications
+                  tagged:
+                    - attributeId: APP-221
+                      attributeType: keyApplication
+                      name: Fund Ledger
+                      description: General ledger for fund accounting
+                      comment: Core ledger for this fund
+                      status: ACTIVE
+                      taggedBy:
+                        id: '12345'
+                        name: John Smith
+                      taggedOn: '2026-10-11T14:21:00Z'
+                  recommended:
+                    - attributeId: APP-512
+                      attributeType: keyApplication
+                      name: Pricing Engine
+                      description: Prices securities daily
+                      reason: Used by 3 AEs in the same business area
+                  available:
+                    - attributeId: APP-310
+                      attributeType: keyApplication
+                      name: NAV Calculator
+                      description: Calculates daily net asset value
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
       '404':
         $ref: '../common/responses.yml#/NotFound'
 
-aeTags:
+aeLock:
+  parameters:
+    - $ref: '../common/parameters.yml#/AeId'
+  post:
+    tags: [AttributeTagging]
+    summary: 4a. Take or renew the edit lock (Edit button)
+    description: |
+      - An owner and nobody else holds the lock (or it expired) -> the caller gets it.
+      - The caller already holds it -> renewed for another 15 minutes. The UI calls this every
+        5 minutes while the user is active in edit mode.
+      - Another owner holds it -> 409.
+      - Not an owner -> 403.
+    operationId: lockAe
+    responses:
+      '200':
+        description: The caller holds the lock
+        content:
+          application/json:
+            schema:
+              $ref: './schemas.yml#/Lock'
+      '401':
+        $ref: '../common/responses.yml#/Unauthorized'
+      '403':
+        $ref: '../common/responses.yml#/NotOwner'
+      '404':
+        $ref: '../common/responses.yml#/NotFound'
+      '409':
+        $ref: '../common/responses.yml#/Locked'
+  delete:
+    tags: [AttributeTagging]
+    summary: 4b. Release the edit lock (Done, Cancel, or opening another AE)
+    description: |
+      Releases the lock if the caller holds it. Does nothing if they don't (it may have expired).
+      Unsaved changes are discarded; the UI warns before calling this.
+    operationId: unlockAe
+    responses:
+      '204':
+        description: Released, or there was nothing to release
+      '401':
+        $ref: '../common/responses.yml#/Unauthorized'
+      '404':
+        $ref: '../common/responses.yml#/NotFound'
+
+aeAttributes:
   put:
     tags: [AttributeTagging]
-    summary: Assign Application, Model and Third Party tags (owners only)
-    description: Replaces the three tag lists. The server checks that the caller is an owner.
-    operationId: updateAttributeTaggingTags
+    summary: 5. Update - save the full list of tagged attributes
+    description: |
+      Send every attribute that should be tagged after the save, across all 11 types.
+      - In the list, not tagged yet -> added, status ACTIVE (comment required).
+      - Tagged now, missing from the list -> removed (stored as INACTIVE).
+      - In the list and already tagged -> kept; a changed comment is saved.
+      The caller must hold the lock (an expired lock that nobody else took is renewed).
+      The lock is kept, so the user can update again.
+    operationId: updateAeAttributes
     parameters:
       - $ref: '../common/parameters.yml#/AeId'
     requestBody:
@@ -128,41 +229,105 @@ aeTags:
       content:
         application/json:
           schema:
-            $ref: './schemas.yml#/TagUpdateRequest'
+            $ref: './schemas.yml#/AttributesUpdateRequest'
+          example:
+            attributes:
+              - attributeId: APP-221
+                attributeType: keyApplication
+                comment: Core ledger for this fund
+              - attributeId: APP-512
+                attributeType: keyApplication
+                comment: Added from recommendation - used for pricing
+              - attributeId: LE-UK-01
+                attributeType: keyLegalEntity
+                comment: UK booking entity
     responses:
       '200':
-        description: Updated AE detail
+        description: Saved. Returns the AE as API 3 does, with the new lists.
         content:
           application/json:
             schema:
-              $ref: './schemas.yml#/AttributeTaggingDetail'
+              $ref: './schemas.yml#/AeDetail'
       '400':
         $ref: '../common/responses.yml#/BadRequest'
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
       '403':
-        $ref: '../common/responses.yml#/Forbidden'
+        $ref: '../common/responses.yml#/NotOwner'
       '404':
         $ref: '../common/responses.yml#/NotFound'
       '409':
-        $ref: '../common/responses.yml#/Conflict'
+        $ref: '../common/responses.yml#/Locked'
 
-aeRecommendations:
+savedFilters:
   get:
     tags: [AttributeTagging]
-    summary: Recommendations for one AE
-    operationId: getAttributeTaggingRecommendations
-    parameters:
-      - $ref: '../common/parameters.yml#/AeId'
+    summary: 6a. The user's saved filters (up to 3)
+    operationId: getSavedFilters
     responses:
       '200':
-        description: Recommendations
+        description: Saved filters, newest first
         content:
           application/json:
             schema:
               type: array
+              maxItems: 3
               items:
-                $ref: './schemas.yml#/Recommendation'
+                $ref: './schemas.yml#/SavedFilter'
+      '401':
+        $ref: '../common/responses.yml#/Unauthorized'
+  post:
+    tags: [AttributeTagging]
+    summary: 6b. Save the current filters
+    description: At most 3 per user. A 4th returns 409; the user deletes one first.
+    operationId: createSavedFilter
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yml#/SavedFilterRequest'
+          example:
+            name: UK entities
+            filters:
+              keyLegalEntity: [LE-UK-01]
+    responses:
+      '201':
+        description: Saved
+        content:
+          application/json:
+            schema:
+              $ref: './schemas.yml#/SavedFilter'
+      '400':
+        $ref: '../common/responses.yml#/BadRequest'
+      '401':
+        $ref: '../common/responses.yml#/Unauthorized'
+      '409':
+        description: The user already has 3 saved filters, or the name is already used
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../common/schemas.yml#/ErrorResponse'
+            example:
+              status: 409
+              title: Conflict
+              detail: You can save up to 3 filters. Delete one first.
+
+savedFilterById:
+  delete:
+    tags: [AttributeTagging]
+    summary: 6c. Delete a saved filter
+    operationId: deleteSavedFilter
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    responses:
+      '204':
+        description: Deleted
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
       '404':

@@ -1,57 +1,48 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan API Spec
-  version: 4.0.0
+  version: 5.0.0
   description: |
-    Open API specification for myAuditPlan (mAP).
+    Open API specification for myAuditPlan (mAP) - Attribute Tagging.
 
-    ## Structure
-    - **Shared** endpoints are at the root: current user, core AE info, saved filters, lookups.
-    - **Each screen** has its own prefix (`/attribute-tagging`, later `/risk-assessment`, `/audit-plan` ...)
-      and the same endpoints: `POST /aes/search` (list and filter), `GET /filters`,
-      `GET /aes/{aeId}` (detail), and edit endpoints under `/aes/{aeId}/...`.
+    ## The screen in one paragraph
+    The user lands on Attribute Tagging and sees the Auditable Entities (AEs) they own: the
+    AE Owner filter starts preselected with them. They change the dropdown filters to find other
+    AEs. Opening an AE shows its 11 attribute types, each with three lists: what is tagged now,
+    what is recommended, and what else is available. An owner clicks Edit to lock the AE, adds
+    or removes attributes in the browser, and clicks Update to save the whole list.
+
+    ## APIs
+    | # | API | Used for |
+    |---|---|---|
+    | 1 | `GET /attribute-tagging/filters` | Every dropdown and all its values |
+    | 2 | `POST /attribute-tagging/aes/search` | The AE list for the selected filters |
+    | 3 | `GET /attribute-tagging/aes/{aeId}` | One AE: tagged, recommended and available attributes |
+    | 4 | `POST` / `DELETE /attribute-tagging/aes/{aeId}/lock` | Take or release the edit lock |
+    | 5 | `PUT /attribute-tagging/aes/{aeId}/attributes` | Update: save the full list of tagged attributes |
+    | 6 | `GET` / `POST` / `DELETE /attribute-tagging/saved-filters` | Up to 3 saved filters per user |
 
     ## Who is the caller
-    - **Now (temporary):** the UI shows a "Who are you?" screen. The user picks themselves from
-      `GET /users?q=`, and the UI sends that user's id in the `X-User-Id` header on every call.
-      Enabled only with the backend `dev-auth` profile. It is not secure: anyone can send any id.
-    - **Later:** a JWT bearer token. The backend reads the user from the token instead of the header;
-      no endpoint, parameter or response changes.
-    - Either way the user is **never** a query parameter or a body field.
+    - For now the UI sends the user's id in the `X-User-Id` header on every call. The user picks
+      themselves on a "Who are you?" screen built from the AE Owner options of API 1.
+      It is not secure: development and demos only.
+    - Later a JWT bearer token replaces the header. No endpoint changes.
+    - The user is never a query parameter or a body field.
 
-    ## View vs edit
-    - Every user can **view** every Auditable Entity (AE).
-    - Only an AE owner (or an admin) can **edit** it.
-    - Every AE in a response carries `canEdit`, computed by the server. The UI shows the rest read-only.
-    - Edit endpoints re-check ownership and return **403** for non-owners. 404 means the AE does not exist.
+    ## View and edit
+    - Anyone can view any AE.
+    - Only an AE owner can edit, and only while holding the AE's **edit lock**. An AE can have
+      several owners; the first one to click Edit gets the lock, the others see it view-only
+      until it is released.
+    - The lock expires after **15 minutes without activity**. Taking the lock again (API 4 POST)
+      and Update (API 5) both renew it. While the user is in edit mode the UI renews it every
+      5 minutes, as long as the user is active.
+    - Update keeps the lock, so the user can save more than once. Done, Cancel or opening another
+      AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
-    ## My AEs vs all AEs
-    - Filter dropdowns always list every value across ALL AEs, for every user.
-    - "My AEs" is just the **AE Owner** filter. The UI preselects it with the logged-in user,
-      so the screen opens on their AEs. Removing it shows all AEs.
-    - Search with no criteria returns all AEs.
-
-    ## Search semantics
-    Values inside one criterion are OR'ed; different criteria are AND'ed.
-    `EXCLUDE` returns AEs that have none of the values.
-    For `aeId` and `aeName` the values are AE ids (names can repeat).
-
-    ## Filtering in the browser
-    Each card has `filterValues`: the codes for every filter of the screen except aeId and aeName.
-    The browser filters with `aeId`, `aeName`, `aeDescription` (search text) and `filterValues` only,
-    and must give the same result as the server.
-
-    ## Paging
-    `page` starts at 1; `pageSize` defaults to 1000 and is capped at 1000.
-    `aeId` is always added to the sort as a tiebreaker.
-
-    ## Screen flow (same for every screen)
-    1. On open: `GET /<screen>/filters` and `POST /<screen>/aes/search?page=1`
-       with `{"criteria":[{"field":"aeOwner","values":["<my id>"]}]}` - the user's AEs, shown at once.
-    2. In the background: `POST /<screen>/aes/search` with `{}`, page by page until `lastPage=true`
-       (about 2,500 AEs, 3 pages). From then on, every filter change is applied in the browser.
-    3. A filter change before the background load finishes is sent to `POST /<screen>/aes/search`.
-    4. Click an AE: `GET /<screen>/aes/{aeId}`. Edit only when `canEdit` is true.
+    ## Filters
+    Values inside one filter are OR'ed; different filters are AND'ed. There is no free-text search:
+    typing inside a dropdown only narrows that dropdown's options, in the browser.
   license:
     name: Proprietary
 servers:
@@ -60,276 +51,19 @@ security:
   - devUserHeader: []
   - bearerAuth: []
 tags:
-  - name: Shared
-    description: Users, current user, saved filters and lookups used by every screen
   - name: AttributeTagging
-    description: Attribute Tagging screen - review and assign Apps, Models and Third Party tags
+    description: Attribute Tagging screen
 paths:
-  /users:
-    get:
-      tags:
-        - Shared
-      summary: Find users (for the temporary "Who are you?" screen)
-      description: |
-        Contains-search on user name. Called without X-User-Id, because the user has not picked
-        themselves yet. Will be removed or restricted once JWT login is in place.
-      operationId: searchUsers
-      security: []
-      parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 2
-            maxLength: 100
-        - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: Matching users
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Person'
-              example:
-                - id: '12345'
-                  name: John Smith
-                - id: '12377'
-                  name: Johanna Smithers
-        '400':
-          $ref: '#/components/responses/BadRequest'
-  /me:
-    get:
-      tags:
-        - Shared
-      summary: Current user
-      description: |
-        Who the caller is: from X-User-Id for now, from the bearer token later.
-        The UI calls this after the "Who are you?" screen to confirm the id is valid.
-      operationId: getCurrentUser
-      responses:
-        '200':
-          description: The current user
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CurrentUser'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-  /saved-filters:
-    get:
-      tags:
-        - Shared
-      summary: The caller's saved filters for one screen
-      operationId: getSavedFilters
-      parameters:
-        - name: screen
-          in: query
-          required: true
-          schema:
-            $ref: '#/components/schemas/ScreenId'
-      responses:
-        '200':
-          description: Saved filters
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SavedFilter'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    post:
-      tags:
-        - Shared
-      summary: Save the current filters
-      operationId: createSavedFilter
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SavedFilterRequest'
-            example:
-              screen: attribute-tagging
-              name: UK legal entities
-              search:
-                criteria:
-                  - field: keyLegalEntity
-                    values:
-                      - LE-UK-01
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SavedFilter'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '409':
-          $ref: '#/components/responses/Conflict'
-  /saved-filters/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: integer
-          format: int64
-    put:
-      tags:
-        - Shared
-      summary: Update one of the caller's saved filters
-      operationId: updateSavedFilter
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SavedFilterRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SavedFilter'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      tags:
-        - Shared
-      summary: Delete one of the caller's saved filters
-      operationId: deleteSavedFilter
-      responses:
-        '204':
-          description: Deleted
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /lookups/{key}:
-    get:
-      tags:
-        - Shared
-      summary: All possible values of one list, for edit forms
-      description: |
-        Every value that can be assigned (for example every application), not only those already
-        used on AEs. Filter dropdowns use the screen's /filters instead.
-      operationId: getLookup
-      parameters:
-        - name: key
-          in: path
-          required: true
-          schema:
-            $ref: '#/components/schemas/FilterKey'
-        - name: q
-          in: query
-          required: false
-          description: Optional contains-search on value or label
-          schema:
-            type: string
-            maxLength: 100
-        - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: Matching values
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Option'
-              example:
-                - value: APP-221
-                  label: APP-221 Fund Ledger
-                - value: APP-310
-                  label: APP-310 NAV Calculator
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-  /attribute-tagging/aes/search:
-    post:
-      tags:
-        - AttributeTagging
-      summary: List, search and filter Attribute Tagging cards
-      description: |
-        The only list endpoint. An empty body {} returns all AEs.
-        The screen opens with criteria aeOwner = [the user's id] (the AE Owner filter preselected).
-
-        Filters on this screen - aeId, aeName, aeOwner, est, risk, keyLegalEntity, keyThirdParty,
-        keyApplication, businessArea, businessDivision, keyModel, archerRiskUnit, costCenter,
-        location, product, auditTeam.
-
-        Sort fields - aeName, aeId, businessArea, modifiedOn.
-      operationId: searchAttributeTaggingAes
-      parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SearchRequest'
-            examples:
-              myAes:
-                summary: Screen opens - AE Owner preselected with the user
-                value:
-                  criteria:
-                    - field: aeOwner
-                      values:
-                        - '12345'
-              allAes:
-                summary: All AEs (owner filter removed)
-                value: {}
-              filtered:
-                summary: Several filters
-                value:
-                  searchText: equity
-                  criteria:
-                    - field: aeName
-                      values:
-                        - '000000004561'
-                        - '000000004890'
-                    - field: keyLegalEntity
-                      values:
-                        - LE-UK-01
-                    - field: costCenter
-                      operator: EXCLUDE
-                      values:
-                        - CC-9999
-      responses:
-        '200':
-          description: A page of AEs (empty items if none match)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AttributeTaggingPage'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
   /attribute-tagging/filters:
     get:
       tags:
         - AttributeTagging
-      summary: Filter dropdowns for Attribute Tagging
+      summary: 1. All dropdowns and their values
       description: |
-        Every value across ALL AEs, in screen order - not only the user's own AEs.
-        The response is the same for every user, so the server caches it once.
-      operationId: getAttributeTaggingFilters
+        Every filter in screen order, each with every value found across all AEs.
+        The same for every user, so the server caches it. Typing in a dropdown narrows its options
+        in the browser; there is no search call. The "Who are you?" screen uses the aeOwner options.
+      operationId: getFilters
       responses:
         '200':
           description: Filters in screen order
@@ -345,48 +79,212 @@ paths:
                   options:
                     - value: '12345'
                       label: John Smith
-                      count: 37
-                - key: aeName
-                  label: AE Name
+                - key: aeId
+                  label: AE ID
                   options:
                     - value: '000000004561'
-                      label: State Street IM Systematic Equity
-                      count: 1
+                      label: '000000004561'
                 - key: keyLegalEntity
                   label: Key Legal Entities
                   options:
                     - value: LE-UK-01
                       label: Example Bank UK Ltd
-                      count: 12
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /attribute-tagging/aes/search:
+    post:
+      tags:
+        - AttributeTagging
+      summary: 2. AE list for the selected filters
+      description: |
+        The server applies the filters and returns one page of cards, sorted by AE name.
+        The screen opens with filters = { aeOwner: [the user's id] }. {} returns all AEs.
+      operationId: searchAes
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filters:
+                  $ref: '#/components/schemas/Filters'
+            examples:
+              screenOpens:
+                summary: Screen opens - my AEs
+                value:
+                  filters:
+                    aeOwner:
+                      - '12345'
+              filtered:
+                summary: User picked more filters
+                value:
+                  filters:
+                    aeOwner:
+                      - '12345'
+                    keyLegalEntity:
+                      - LE-UK-01
+                      - LE-US-02
+                    costCenter:
+                      - CC-4410
+              allAes:
+                summary: No filters - all AEs
+                value: {}
+      responses:
+        '200':
+          description: One page of AE cards (empty items if none match)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AePage'
+              example:
+                page: 1
+                pageSize: 20
+                totalRecords: 37
+                totalPages: 2
+                items:
+                  - aeId: '000000004561'
+                    aeName: State Street IM Systematic Equity
+                    aeDescription: Performs fund accounting services
+                    businessArea: Corporate Divisions - Enterprise Risk Management
+                    modifiedOn: '2026-10-11T14:21:00Z'
+                    recommendationCount: 4
+                    isOwner: true
+                    lockedBy:
+                      id: '12377'
+                      name: Jane Doe
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /attribute-tagging/aes/{aeId}:
     get:
       tags:
         - AttributeTagging
-      summary: Attribute Tagging detail of one AE
-      description: Any user can view. canEdit decides whether the edit form is shown.
-      operationId: getAttributeTaggingAe
+      summary: 3. One AE with tagged, recommended and available attributes
+      description: Anyone can view. canEdit is true only for the owner who holds the lock.
+      operationId: getAe
       parameters:
         - $ref: '#/components/parameters/AeId'
       responses:
         '200':
-          description: The AE with labelled attributes
+          description: The AE
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AttributeTaggingDetail'
+                $ref: '#/components/schemas/AeDetail'
+              example:
+                aeId: '000000004561'
+                aeName: State Street IM Systematic Equity
+                aeDescription: Performs fund accounting services
+                businessArea: Corporate Divisions - Enterprise Risk Management
+                businessDivision: Corporate Divisions
+                aeOwners:
+                  - id: '12345'
+                    name: John Smith
+                  - id: '12377'
+                    name: Jane Doe
+                isOwner: true
+                lock:
+                  lockedBy:
+                    id: '12377'
+                    name: Jane Doe
+                  lockedOn: '2026-11-19T12:02:00Z'
+                  expiresAt: '2026-11-19T12:17:00Z'
+                canEdit: false
+                modifiedOn: '2026-10-11T14:21:00Z'
+                modifiedBy:
+                  id: '12345'
+                  name: John Smith
+                attributeTypes:
+                  - type: keyApplication
+                    label: Key Applications
+                    tagged:
+                      - attributeId: APP-221
+                        attributeType: keyApplication
+                        name: Fund Ledger
+                        description: General ledger for fund accounting
+                        comment: Core ledger for this fund
+                        status: ACTIVE
+                        taggedBy:
+                          id: '12345'
+                          name: John Smith
+                        taggedOn: '2026-10-11T14:21:00Z'
+                    recommended:
+                      - attributeId: APP-512
+                        attributeType: keyApplication
+                        name: Pricing Engine
+                        description: Prices securities daily
+                        reason: Used by 3 AEs in the same business area
+                    available:
+                      - attributeId: APP-310
+                        attributeType: keyApplication
+                        name: NAV Calculator
+                        description: Calculates daily net asset value
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
-  /attribute-tagging/aes/{aeId}/tags:
+  /attribute-tagging/aes/{aeId}/lock:
+    parameters:
+      - $ref: '#/components/parameters/AeId'
+    post:
+      tags:
+        - AttributeTagging
+      summary: 4a. Take or renew the edit lock (Edit button)
+      description: |
+        - An owner and nobody else holds the lock (or it expired) -> the caller gets it.
+        - The caller already holds it -> renewed for another 15 minutes. The UI calls this every
+          5 minutes while the user is active in edit mode.
+        - Another owner holds it -> 409.
+        - Not an owner -> 403.
+      operationId: lockAe
+      responses:
+        '200':
+          description: The caller holds the lock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lock'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotOwner'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Locked'
+    delete:
+      tags:
+        - AttributeTagging
+      summary: 4b. Release the edit lock (Done, Cancel, or opening another AE)
+      description: |
+        Releases the lock if the caller holds it. Does nothing if they don't (it may have expired).
+        Unsaved changes are discarded; the UI warns before calling this.
+      operationId: unlockAe
+      responses:
+        '204':
+          description: Released, or there was nothing to release
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /attribute-tagging/aes/{aeId}/attributes:
     put:
       tags:
         - AttributeTagging
-      summary: Assign Application, Model and Third Party tags (owners only)
-      description: Replaces the three tag lists. The server checks that the caller is an owner.
-      operationId: updateAttributeTaggingTags
+      summary: 5. Update - save the full list of tagged attributes
+      description: |
+        Send every attribute that should be tagged after the save, across all 11 types.
+        - In the list, not tagged yet -> added, status ACTIVE (comment required).
+        - Tagged now, missing from the list -> removed (stored as INACTIVE).
+        - In the list and already tagged -> kept; a changed comment is saved.
+        The caller must hold the lock (an expired lock that nobody else took is renewed).
+        The lock is kept, so the user can update again.
+      operationId: updateAeAttributes
       parameters:
         - $ref: '#/components/parameters/AeId'
       requestBody:
@@ -394,118 +292,176 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TagUpdateRequest'
+              $ref: '#/components/schemas/AttributesUpdateRequest'
+            example:
+              attributes:
+                - attributeId: APP-221
+                  attributeType: keyApplication
+                  comment: Core ledger for this fund
+                - attributeId: APP-512
+                  attributeType: keyApplication
+                  comment: Added from recommendation - used for pricing
+                - attributeId: LE-UK-01
+                  attributeType: keyLegalEntity
+                  comment: UK booking entity
       responses:
         '200':
-          description: Updated AE detail
+          description: Saved. Returns the AE as API 3 does, with the new lists.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AttributeTaggingDetail'
+                $ref: '#/components/schemas/AeDetail'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/NotOwner'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
-  /attribute-tagging/aes/{aeId}/recommendations:
+          $ref: '#/components/responses/Locked'
+  /attribute-tagging/saved-filters:
     get:
       tags:
         - AttributeTagging
-      summary: Recommendations for one AE
-      operationId: getAttributeTaggingRecommendations
-      parameters:
-        - $ref: '#/components/parameters/AeId'
+      summary: 6a. The user's saved filters (up to 3)
+      operationId: getSavedFilters
       responses:
         '200':
-          description: Recommendations
+          description: Saved filters, newest first
           content:
             application/json:
               schema:
                 type: array
+                maxItems: 3
                 items:
-                  $ref: '#/components/schemas/Recommendation'
+                  $ref: '#/components/schemas/SavedFilter'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - AttributeTagging
+      summary: 6b. Save the current filters
+      description: At most 3 per user. A 4th returns 409; the user deletes one first.
+      operationId: createSavedFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedFilterRequest'
+            example:
+              name: UK entities
+              filters:
+                keyLegalEntity:
+                  - LE-UK-01
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: The user already has 3 saved filters, or the name is already used
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: 409
+                title: Conflict
+                detail: You can save up to 3 filters. Delete one first.
+  /attribute-tagging/saved-filters/{id}:
+    delete:
+      tags:
+        - AttributeTagging
+      summary: 6c. Delete a saved filter
+      operationId: deleteSavedFilter
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Deleted
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: Planned. The token carries the user id and username.
     devUserHeader:
       type: apiKey
       in: header
       name: X-User-Id
-      description: |
-        Temporary, until JWT is in place. The id of the user picked on the "Who are you?" screen.
-        Only accepted when the backend runs with the dev-auth profile. Not secure.
-  parameters:
-    Limit:
-      name: limit
-      in: query
-      required: false
-      schema:
-        type: integer
-        default: 20
-        minimum: 1
-        maximum: 100
-    Page:
-      name: page
-      in: query
-      required: false
-      description: Page number (starts at 1)
-      schema:
-        type: integer
-        default: 1
-        minimum: 1
-    PageSize:
-      name: pageSize
-      in: query
-      required: false
-      description: Records per page (max 1000)
-      schema:
-        type: integer
-        default: 1000
-        minimum: 1
-        maximum: 1000
-    Sort:
-      name: sort
-      in: query
-      required: false
-      description: field,asc|desc. Allowed fields are listed per screen. aeId is always added as a tiebreaker.
-      schema:
-        type: string
-        default: aeName,asc
-    AeId:
-      name: aeId
-      in: path
-      required: true
-      description: AE id (string; keeps leading zeros)
-      schema:
-        type: string
-        example: '000000004561'
+      description: Temporary, until JWT. The id of the user picked on the "Who are you?" screen. Not secure.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Planned. The token carries the user id.
   schemas:
-    Person:
+    FilterKey:
+      type: string
+      description: The dropdowns on the screen
+      enum:
+        - aeId
+        - aeName
+        - aeOwner
+        - est
+        - risk
+        - keyLegalEntity
+        - keyThirdParty
+        - keyApplication
+        - businessArea
+        - businessDivision
+        - keyModel
+        - archerRiskUnit
+        - costCenter
+        - location
+        - product
+        - auditTeam
+    Option:
+      type: object
+      description: One value in a dropdown
+      required:
+        - value
+        - label
+      properties:
+        value:
+          type: string
+          description: Sent back in filters. For aeId and aeName it is the AE id; for aeOwner the user id.
+          example: LE-UK-01
+        label:
+          type: string
+          description: Shown in the dropdown and in the chip
+          example: Example Bank UK Ltd
+    Filter:
       type: object
       required:
-        - id
-        - name
+        - key
+        - label
+        - options
       properties:
-        id:
+        key:
+          $ref: '#/components/schemas/FilterKey'
+        label:
           type: string
-          description: Stable user id (used for ownership checks)
-          example: '12345'
-        name:
-          type: string
-          example: John Smith
+          example: Key Legal Entities
+        options:
+          type: array
+          description: Every value across all AEs
+          items:
+            $ref: '#/components/schemas/Option'
     ErrorResponse:
       type: object
       description: RFC 7807 problem detail (Spring ProblemDetail)
@@ -525,98 +481,306 @@ components:
                 type: string
               message:
                 type: string
-    CurrentUser:
-      allOf:
-        - $ref: '#/components/schemas/Person'
-        - type: object
-          required:
-            - roles
-          properties:
-            roles:
-              type: array
-              items:
-                type: string
-              example:
-                - AE_USER
-    ScreenId:
-      type: string
-      description: Screen identifier. Add new screens here.
-      enum:
-        - attribute-tagging
-    FilterKey:
-      type: string
+    Filters:
+      type: object
       description: |
-        Catalog of every filter used across screens. Each screen accepts only its own subset
-        (a filter the screen doesn't offer returns 400). Also used as the lookup type.
-      enum:
+        Selected dropdown values, by filter key. Values inside one filter are OR'ed;
+        different filters are AND'ed. {} = no filter = all AEs.
+      additionalProperties:
+        type: array
+        items:
+          type: string
+      example:
+        aeOwner:
+          - '12345'
+        keyLegalEntity:
+          - LE-UK-01
+          - LE-US-02
+    PageMeta:
+      type: object
+      required:
+        - page
+        - pageSize
+        - totalRecords
+        - totalPages
+      properties:
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        totalRecords:
+          type: integer
+          example: 37
+        totalPages:
+          type: integer
+          example: 2
+    Person:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          description: User id
+          example: '12345'
+        name:
+          type: string
+          example: John Smith
+    AeCard:
+      type: object
+      description: One AE card in the list
+      required:
         - aeId
         - aeName
-        - aeOwner
-        - est
-        - risk
-        - keyLegalEntity
-        - keyThirdParty
-        - keyApplication
-        - businessArea
-        - businessDivision
-        - keyModel
-        - archerRiskUnit
-        - costCenter
-        - location
-        - product
-        - auditTeam
-    Criterion:
-      type: object
-      description: For aeId and aeName the values are AE ids; for aeOwner they are user ids.
-      required:
-        - field
-        - values
+        - isOwner
+        - recommendationCount
       properties:
-        field:
-          $ref: '#/components/schemas/FilterKey'
-        operator:
+        aeId:
           type: string
-          enum:
-            - INCLUDE
-            - EXCLUDE
-          default: INCLUDE
-        values:
-          type: array
-          minItems: 1
-          maxItems: 500
-          items:
-            type: string
-    SearchRequest:
+          example: '000000004561'
+        aeName:
+          type: string
+          example: State Street IM Systematic Equity
+        aeDescription:
+          type: string
+          nullable: true
+          example: Performs fund accounting services
+        businessArea:
+          type: string
+          nullable: true
+          example: Corporate Divisions - Enterprise Risk Management
+        modifiedOn:
+          type: string
+          format: date-time
+          example: '2026-10-11T14:21:00Z'
+        recommendationCount:
+          type: integer
+          description: Shown as "N Recommendations"
+          example: 4
+        isOwner:
+          type: boolean
+          description: true = show the Edit option; false = View only
+          example: true
+        lockedBy:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/Person'
+          nullable: true
+          description: Set when another owner is editing this AE right now
+    AePage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AeCard'
+    Lock:
+      type: object
+      description: Who holds the edit lock, and until when
+      required:
+        - lockedBy
+        - lockedOn
+        - expiresAt
+      properties:
+        lockedBy:
+          $ref: '#/components/schemas/Person'
+        lockedOn:
+          type: string
+          format: date-time
+          example: '2026-11-19T12:02:00Z'
+        expiresAt:
+          type: string
+          format: date-time
+          description: 15 minutes after the last activity (lock taken or renewed, or Update)
+          example: '2026-11-19T12:17:00Z'
+    AttributeType:
+      type: string
+      description: |
+        One of the 11 attribute types. Known so far - risk, keyLegalEntity, keyThirdParty,
+        keyApplication, keyModel, archerRiskUnit, costCenter, location, product (two more to confirm).
+      example: keyApplication
+    Attribute:
+      type: object
+      required:
+        - attributeId
+        - attributeType
+        - name
+      properties:
+        attributeId:
+          type: string
+          example: APP-310
+        attributeType:
+          $ref: '#/components/schemas/AttributeType'
+        name:
+          type: string
+          example: NAV Calculator
+        description:
+          type: string
+          nullable: true
+          example: Calculates daily net asset value
+    TaggedAttribute:
+      description: An attribute tagged to the AE now (status ACTIVE)
+      allOf:
+        - $ref: '#/components/schemas/Attribute'
+        - type: object
+          required:
+            - status
+          properties:
+            comment:
+              type: string
+              nullable: true
+              description: Why it was tagged
+              example: Core ledger for this fund
+            status:
+              type: string
+              enum:
+                - ACTIVE
+            taggedBy:
+              $ref: '#/components/schemas/Person'
+            taggedOn:
+              type: string
+              format: date-time
+              example: '2026-10-11T14:21:00Z'
+    RecommendedAttribute:
+      description: An attribute the rules suggest, not tagged yet
+      allOf:
+        - $ref: '#/components/schemas/Attribute'
+        - type: object
+          properties:
+            reason:
+              type: string
+              description: Why the rules recommend it
+              example: Used by 3 AEs in the same business area
+    AttributeTypeGroup:
       type: object
       description: |
-        An empty body {} returns all AEs. The UI opens the screen with criteria aeOwner = [the user's id],
-        so the user first sees their own AEs.
+        One attribute type with its three lists. Each attribute appears in only one list:
+        available = every attribute of this type that is neither tagged nor recommended.
+      required:
+        - type
+        - label
+        - tagged
+        - recommended
+        - available
       properties:
-        searchText:
+        type:
+          $ref: '#/components/schemas/AttributeType'
+        label:
           type: string
-          maxLength: 100
-          description: Case-insensitive contains match on aeId, aeName and aeDescription
-        criteria:
+          example: Key Applications
+        tagged:
           type: array
-          maxItems: 15
           items:
-            $ref: '#/components/schemas/Criterion'
+            $ref: '#/components/schemas/TaggedAttribute'
+        recommended:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecommendedAttribute'
+        available:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attribute'
+    AeDetail:
+      type: object
+      description: One AE with all 11 attribute types
+      required:
+        - aeId
+        - aeName
+        - aeOwners
+        - isOwner
+        - canEdit
+        - attributeTypes
+      properties:
+        aeId:
+          type: string
+          example: '000000004561'
+        aeName:
+          type: string
+          example: State Street IM Systematic Equity
+        aeDescription:
+          type: string
+          nullable: true
+        businessArea:
+          type: string
+          nullable: true
+        businessDivision:
+          type: string
+          nullable: true
+        aeOwners:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+        isOwner:
+          type: boolean
+          description: The caller is one of the AE owners
+        lock:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/Lock'
+          nullable: true
+          description: null = nobody is editing
+        canEdit:
+          type: boolean
+          description: true only when the caller is an owner AND holds the lock
+        modifiedOn:
+          type: string
+          format: date-time
+        modifiedBy:
+          $ref: '#/components/schemas/Person'
+        attributeTypes:
+          type: array
+          description: The 11 attribute types, in screen order
+          items:
+            $ref: '#/components/schemas/AttributeTypeGroup'
+    AttributeChange:
+      type: object
+      required:
+        - attributeId
+        - attributeType
+      properties:
+        attributeId:
+          type: string
+          example: APP-512
+        attributeType:
+          $ref: '#/components/schemas/AttributeType'
+        comment:
+          type: string
+          maxLength: 1000
+          description: Why it is tagged. Required for attributes that are not tagged yet.
+          example: Added from recommendation - used for pricing
+    AttributesUpdateRequest:
+      type: object
+      description: |
+        The COMPLETE list of attributes that should be tagged after Update, across all 11 types.
+        Attributes not in the list are removed (stored as INACTIVE). New ones are stored as ACTIVE.
+        Name and description are not sent: the server takes them from the attribute itself.
+      required:
+        - attributes
+      properties:
+        attributes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttributeChange'
     SavedFilterRequest:
       type: object
       required:
-        - screen
         - name
-        - search
+        - filters
       properties:
-        screen:
-          $ref: '#/components/schemas/ScreenId'
         name:
           type: string
           minLength: 1
-          maxLength: 100
-          example: UK legal entities
-        search:
-          $ref: '#/components/schemas/SearchRequest'
+          maxLength: 50
+          example: UK entities
+        filters:
+          $ref: '#/components/schemas/Filters'
     SavedFilter:
       allOf:
         - $ref: '#/components/schemas/SavedFilterRequest'
@@ -631,285 +795,9 @@ components:
             createdOn:
               type: string
               format: date-time
-    Option:
-      type: object
-      description: A value and its display text. Used for filter options, lookups and labelled attributes.
-      required:
-        - value
-        - label
-      properties:
-        value:
-          type: string
-          description: Code or id. This is what is sent back to the API.
-          example: LE-UK-01
-        label:
-          type: string
-          description: Display text
-          example: Example Bank UK Ltd
-        count:
-          type: integer
-          description: Only in filter options - number of AEs (out of all AEs) with this value
-          example: 12
-    PageMeta:
-      type: object
-      description: Every list response has these fields plus `items`.
-      required:
-        - page
-        - pageSize
-        - totalRecords
-        - totalPages
-        - lastPage
-      properties:
-        page:
-          type: integer
-          example: 1
-        pageSize:
-          type: integer
-          example: 1000
-        totalRecords:
-          type: integer
-          example: 156
-        totalPages:
-          type: integer
-          example: 1
-        lastPage:
-          type: boolean
-          description: true when there are no more pages; the browser can then filter locally
-          example: true
-    AeSummary:
-      type: object
-      description: Core AE fields shared by every screen. Each screen's card and detail extend this.
-      required:
-        - aeId
-        - aeName
-        - aeOwners
-        - canEdit
-      properties:
-        aeId:
-          type: string
-          description: Keeps leading zeros
-          example: '000000004561'
-        aeName:
-          type: string
-          example: State Street IM Systematic Equity
-        aeDescription:
-          type: string
-          nullable: true
-          example: Performs fund accounting services
-        aeOwners:
-          type: array
-          items:
-            $ref: '#/components/schemas/Person'
-        businessArea:
-          type: string
-          nullable: true
-          description: Display text
-          example: Corporate Divisions - Enterprise Risk Management
-        businessDivision:
-          type: string
-          nullable: true
-          description: Display text
-          example: Corporate Divisions
-        canEdit:
-          type: boolean
-          description: true if the caller is an owner of this AE (or an admin). false means view only.
-          example: true
-        modifiedOn:
-          type: string
-          format: date-time
-          example: '2026-10-11T14:21:00Z'
-        modifiedBy:
-          type: string
-          example: map-system
-    FilterValues:
-      type: object
-      description: |
-        The AE's value codes for every filter of the screen except aeId and aeName, keyed by filter key.
-        Always arrays, also for single-value fields (businessArea, est ...). A missing key means no value.
-        aeOwner holds the owners' user ids.
-        The browser filters with aeId, aeName and this map only, so every filter of the screen must be here.
-      additionalProperties:
-        type: array
-        items:
-          type: string
-      example:
-        aeOwner:
-          - '12345'
-        est:
-          - EST-01
-        businessArea:
-          - BA-ERM
-        businessDivision:
-          - BD-CORP
-        auditTeam:
-          - AT-ERM
-        keyLegalEntity:
-          - LE-UK-01
-        keyApplication:
-          - APP-221
-          - APP-310
-        keyModel:
-          - MDL-17
-        keyThirdParty:
-          - TP-0091
-        costCenter:
-          - CC-4410
-    AttributeTaggingCard:
-      description: One AE card on the Attribute Tagging screen
-      allOf:
-        - $ref: '#/components/schemas/AeSummary'
-        - type: object
-          required:
-            - recommendationCount
-            - filterValues
-          properties:
-            recommendationCount:
-              type: integer
-              description: Shown as "N Recommendations"
-              example: 4
-            filterValues:
-              $ref: '#/components/schemas/FilterValues'
-    AttributeTaggingPage:
-      allOf:
-        - $ref: '#/components/schemas/PageMeta'
-        - type: object
-          required:
-            - items
-          properties:
-            items:
-              type: array
-              items:
-                $ref: '#/components/schemas/AttributeTaggingCard'
-    Filter:
-      type: object
-      required:
-        - key
-        - label
-        - options
-      properties:
-        key:
-          $ref: '#/components/schemas/FilterKey'
-        label:
-          type: string
-          example: Key Legal Entities
-        options:
-          type: array
-          description: Every value across all AEs (the same for every user). For aeId and aeName, value = AE id; for aeOwner, value = user id.
-          items:
-            $ref: '#/components/schemas/Option'
-    LabelledValues:
-      type: object
-      description: Same keys as FilterValues, with labels, for detail pages.
-      additionalProperties:
-        type: array
-        items:
-          $ref: '#/components/schemas/Option'
-      example:
-        keyLegalEntity:
-          - value: LE-UK-01
-            label: Example Bank UK Ltd
-        keyApplication:
-          - value: APP-221
-            label: APP-221 Fund Ledger
-    AttributeTaggingDetail:
-      description: Everything the detail page shows for one AE
-      allOf:
-        - $ref: '#/components/schemas/AeSummary'
-        - type: object
-          required:
-            - recommendationCount
-            - attributes
-            - version
-          properties:
-            recommendationCount:
-              type: integer
-              example: 4
-            attributes:
-              $ref: '#/components/schemas/LabelledValues'
-            version:
-              type: integer
-              description: Send back in TagUpdateRequest to detect concurrent edits
-              example: 7
-    TagUpdateRequest:
-      type: object
-      description: |
-        Replaces the AE's Application, Model and Third Party tags with these lists of codes.
-        Choices come from /lookups/keyApplication, /lookups/keyModel and /lookups/keyThirdParty.
-      required:
-        - keyApplication
-        - keyModel
-        - keyThirdParty
-        - version
-      properties:
-        keyApplication:
-          type: array
-          items:
-            type: string
-          example:
-            - APP-221
-            - APP-310
-        keyModel:
-          type: array
-          items:
-            type: string
-          example:
-            - MDL-17
-        keyThirdParty:
-          type: array
-          items:
-            type: string
-          example:
-            - TP-0091
-        version:
-          type: integer
-          description: The version read from the detail endpoint. If the AE has changed since, 409 is returned.
-          example: 7
-    Recommendation:
-      type: object
-      description: Placeholder shape - align with the recommendations table
-      properties:
-        id:
-          type: integer
-          format: int64
-          example: 901
-        field:
-          type: string
-          description: Which tag list it is for
-          enum:
-            - keyApplication
-            - keyModel
-            - keyThirdParty
-        value:
-          type: string
-          example: APP-512
-        label:
-          type: string
-          example: APP-512 Pricing Engine
-        reason:
-          type: string
-          example: Used by 3 AEs in the same business area
-        status:
-          type: string
-          enum:
-            - OPEN
-            - ACCEPTED
-            - REJECTED
   responses:
-    BadRequest:
-      description: Invalid request (a filter the screen doesn't offer, pageSize over 1000, bad sort field ...)
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            status: 400
-            title: Bad Request
-            detail: Invalid request parameters
-            errors:
-              - field: pageSize
-                message: must be less than or equal to 1000
     Unauthorized:
-      description: No user identified (missing or unknown X-User-Id now; missing or expired token later)
+      description: No user identified (missing or unknown X-User-Id; later a missing or expired token)
       content:
         application/problem+json:
           schema:
@@ -918,16 +806,19 @@ components:
             status: 401
             title: Unauthorized
             detail: No user identified. Pick your name again.
-    Conflict:
-      description: The resource changed since it was read, or a name is already used
+    BadRequest:
+      description: Invalid request (unknown filter key, pageSize over 100, missing comment on a new attribute ...)
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            status: 409
-            title: Conflict
-            detail: Auditable Entity 000000004561 was changed by someone else. Reload and try again.
+            status: 400
+            title: Bad Request
+            detail: Invalid request
+            errors:
+              - field: attributes[1].comment
+                message: A comment is required when tagging a new attribute
     NotFound:
       description: Not found
       content:
@@ -938,8 +829,8 @@ components:
             status: 404
             title: Not Found
             detail: Auditable Entity 000000004561 not found
-    Forbidden:
-      description: The caller can view this AE but is not an owner, so cannot edit it
+    NotOwner:
+      description: The caller is not an owner of this AE, so cannot edit it
       content:
         application/problem+json:
           schema:
@@ -948,3 +839,41 @@ components:
             status: 403
             title: Forbidden
             detail: Only an owner of Auditable Entity 000000004561 can edit it
+    Locked:
+      description: Another owner holds the edit lock
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 409
+            title: Conflict
+            detail: Auditable Entity 000000004561 is being edited by Jane Doe
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Page number (starts at 1)
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Cards per page (max 100)
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    AeId:
+      name: aeId
+      in: path
+      required: true
+      description: AE id (string; keeps leading zeros)
+      schema:
+        type: string
+        example: '000000004561'

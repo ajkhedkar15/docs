@@ -1,57 +1,48 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan API Spec
-  version: 4.0.0
+  version: 5.0.0
   description: |
-    Open API specification for myAuditPlan (mAP).
+    Open API specification for myAuditPlan (mAP) - Attribute Tagging.
 
-    ## Structure
-    - **Shared** endpoints are at the root: current user, core AE info, saved filters, lookups.
-    - **Each screen** has its own prefix (`/attribute-tagging`, later `/risk-assessment`, `/audit-plan` ...)
-      and the same endpoints: `POST /aes/search` (list and filter), `GET /filters`,
-      `GET /aes/{aeId}` (detail), and edit endpoints under `/aes/{aeId}/...`.
+    ## The screen in one paragraph
+    The user lands on Attribute Tagging and sees the Auditable Entities (AEs) they own: the
+    AE Owner filter starts preselected with them. They change the dropdown filters to find other
+    AEs. Opening an AE shows its 11 attribute types, each with three lists: what is tagged now,
+    what is recommended, and what else is available. An owner clicks Edit to lock the AE, adds
+    or removes attributes in the browser, and clicks Update to save the whole list.
+
+    ## APIs
+    | # | API | Used for |
+    |---|---|---|
+    | 1 | `GET /attribute-tagging/filters` | Every dropdown and all its values |
+    | 2 | `POST /attribute-tagging/aes/search` | The AE list for the selected filters |
+    | 3 | `GET /attribute-tagging/aes/{aeId}` | One AE: tagged, recommended and available attributes |
+    | 4 | `POST` / `DELETE /attribute-tagging/aes/{aeId}/lock` | Take or release the edit lock |
+    | 5 | `PUT /attribute-tagging/aes/{aeId}/attributes` | Update: save the full list of tagged attributes |
+    | 6 | `GET` / `POST` / `DELETE /attribute-tagging/saved-filters` | Up to 3 saved filters per user |
 
     ## Who is the caller
-    - **Now (temporary):** the UI shows a "Who are you?" screen. The user picks themselves from
-      `GET /users?q=`, and the UI sends that user's id in the `X-User-Id` header on every call.
-      Enabled only with the backend `dev-auth` profile. It is not secure: anyone can send any id.
-    - **Later:** a JWT bearer token. The backend reads the user from the token instead of the header;
-      no endpoint, parameter or response changes.
-    - Either way the user is **never** a query parameter or a body field.
+    - For now the UI sends the user's id in the `X-User-Id` header on every call. The user picks
+      themselves on a "Who are you?" screen built from the AE Owner options of API 1.
+      It is not secure: development and demos only.
+    - Later a JWT bearer token replaces the header. No endpoint changes.
+    - The user is never a query parameter or a body field.
 
-    ## View vs edit
-    - Every user can **view** every Auditable Entity (AE).
-    - Only an AE owner (or an admin) can **edit** it.
-    - Every AE in a response carries `canEdit`, computed by the server. The UI shows the rest read-only.
-    - Edit endpoints re-check ownership and return **403** for non-owners. 404 means the AE does not exist.
+    ## View and edit
+    - Anyone can view any AE.
+    - Only an AE owner can edit, and only while holding the AE's **edit lock**. An AE can have
+      several owners; the first one to click Edit gets the lock, the others see it view-only
+      until it is released.
+    - The lock expires after **15 minutes without activity**. Taking the lock again (API 4 POST)
+      and Update (API 5) both renew it. While the user is in edit mode the UI renews it every
+      5 minutes, as long as the user is active.
+    - Update keeps the lock, so the user can save more than once. Done, Cancel or opening another
+      AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
-    ## My AEs vs all AEs
-    - Filter dropdowns always list every value across ALL AEs, for every user.
-    - "My AEs" is just the **AE Owner** filter. The UI preselects it with the logged-in user,
-      so the screen opens on their AEs. Removing it shows all AEs.
-    - Search with no criteria returns all AEs.
-
-    ## Search semantics
-    Values inside one criterion are OR'ed; different criteria are AND'ed.
-    `EXCLUDE` returns AEs that have none of the values.
-    For `aeId` and `aeName` the values are AE ids (names can repeat).
-
-    ## Filtering in the browser
-    Each card has `filterValues`: the codes for every filter of the screen except aeId and aeName.
-    The browser filters with `aeId`, `aeName`, `aeDescription` (search text) and `filterValues` only,
-    and must give the same result as the server.
-
-    ## Paging
-    `page` starts at 1; `pageSize` defaults to 1000 and is capped at 1000.
-    `aeId` is always added to the sort as a tiebreaker.
-
-    ## Screen flow (same for every screen)
-    1. On open: `GET /<screen>/filters` and `POST /<screen>/aes/search?page=1`
-       with `{"criteria":[{"field":"aeOwner","values":["<my id>"]}]}` - the user's AEs, shown at once.
-    2. In the background: `POST /<screen>/aes/search` with `{}`, page by page until `lastPage=true`
-       (about 2,500 AEs, 3 pages). From then on, every filter change is applied in the browser.
-    3. A filter change before the background load finishes is sent to `POST /<screen>/aes/search`.
-    4. Click an AE: `GET /<screen>/aes/{aeId}`. Edit only when `canEdit` is true.
+    ## Filters
+    Values inside one filter are OR'ed; different filters are AND'ed. There is no free-text search:
+    typing inside a dropdown only narrows that dropdown's options, in the browser.
   license:
     name: Proprietary
 servers:
@@ -62,47 +53,34 @@ security:
   - bearerAuth: []
 
 tags:
-  - name: Shared
-    description: Users, current user, saved filters and lookups used by every screen
   - name: AttributeTagging
-    description: Attribute Tagging screen - review and assign Apps, Models and Third Party tags
+    description: Attribute Tagging screen
 
 paths:
-  # ---------- Shared ----------
-  /users:
-    $ref: './shared/paths.yml#/users'
-  /me:
-    $ref: './shared/paths.yml#/me'
-  /saved-filters:
-    $ref: './shared/paths.yml#/savedFilters'
-  /saved-filters/{id}:
-    $ref: './shared/paths.yml#/savedFilterById'
-  /lookups/{key}:
-    $ref: './shared/paths.yml#/lookups'
-
-  # ---------- Attribute Tagging ----------
-  /attribute-tagging/aes/search:
-    $ref: './attribute-tagging/paths.yml#/aesSearch'
   /attribute-tagging/filters:
     $ref: './attribute-tagging/paths.yml#/filters'
+  /attribute-tagging/aes/search:
+    $ref: './attribute-tagging/paths.yml#/aesSearch'
   /attribute-tagging/aes/{aeId}:
     $ref: './attribute-tagging/paths.yml#/aeDetail'
-  /attribute-tagging/aes/{aeId}/tags:
-    $ref: './attribute-tagging/paths.yml#/aeTags'
-  /attribute-tagging/aes/{aeId}/recommendations:
-    $ref: './attribute-tagging/paths.yml#/aeRecommendations'
+  /attribute-tagging/aes/{aeId}/lock:
+    $ref: './attribute-tagging/paths.yml#/aeLock'
+  /attribute-tagging/aes/{aeId}/attributes:
+    $ref: './attribute-tagging/paths.yml#/aeAttributes'
+  /attribute-tagging/saved-filters:
+    $ref: './attribute-tagging/paths.yml#/savedFilters'
+  /attribute-tagging/saved-filters/{id}:
+    $ref: './attribute-tagging/paths.yml#/savedFilterById'
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: Planned. The token carries the user id and username.
     devUserHeader:
       type: apiKey
       in: header
       name: X-User-Id
-      description: |
-        Temporary, until JWT is in place. The id of the user picked on the "Who are you?" screen.
-        Only accepted when the backend runs with the dev-auth profile. Not secure.
+      description: Temporary, until JWT. The id of the user picked on the "Who are you?" screen. Not secure.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Planned. The token carries the user id.

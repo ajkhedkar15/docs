@@ -1,115 +1,93 @@
 # Copilot instructions: myAuditPlan (mAP) backend API
 
 ## What this service is
-myAuditPlan is an audit application made up of several screens (Attribute Tagging first, then Risk Assessment, Audit Plan and others). Almost every screen lists **Auditable Entities (AEs)**, lets the user search and filter them, opens one AE, and lets the AE's owners edit something on it. This service is the Spring Boot REST API behind those screens.
-
-Typical size: about 1,000–2,500 AEs in total. A single user owns far fewer.
+The Spring Boot REST API behind the **Attribute Tagging** screen of myAuditPlan. Users find Auditable Entities (AEs) with dropdown filters, open one, and (if they own it and hold its edit lock) tag or untag attributes of 11 attribute types. About 1,000–2,500 AEs in total.
 
 ## Tech stack
 - Java 17+, Spring Boot 3, Spring Web, Spring Data JPA, Spring Security
-- springdoc-openapi for Swagger UI
-- Use the libraries already in `pom.xml`. Do not add a new dependency without saying why.
+- Use the libraries already in `pom.xml`. Do not add a dependency without saying why.
 
 ## The API spec is the contract
-- The OpenAPI spec (source in `api/openapi.yml` split across `api/common`, `api/shared` and `api/<screen>`; generate code from the bundled `api/dist/openapi.bundled.yml`) defines every endpoint, parameter and schema. **If code and spec disagree, the spec wins.**
-- Never add, rename or change an endpoint or field in code alone. Change the spec first, in the same PR.
-- Controller interfaces and DTOs are generated from the spec with openapi-generator (`interfaceOnly=true`). Implement the generated interfaces; do not hand-write duplicate DTOs.
+- Source: `api/openapi.yml` (split into `api/common` and `api/attribute-tagging`). Generate from the bundled `api/dist/openapi.bundled.yml` with openapi-generator (`interfaceOnly=true`) and implement the generated interfaces.
+- **If code and spec disagree, the spec wins.** Never add, rename or change an endpoint or field in code alone; change the spec first, in the same PR.
+
+## The APIs (all under `/api/v1/attribute-tagging`)
+| # | Endpoint | Does |
+|---|---|---|
+| 1 | `GET /filters` | Every filter in screen order with every value across all AEs. Same for every user → cache once. |
+| 2 | `POST /aes/search?page&pageSize` | Body `{ filters: { <key>: [values] } }`. Server-side filtering, sorted by AE name, paged (default 20, max 100). `{}` = all AEs. |
+| 3 | `GET /aes/{aeId}` | One AE with 11 attribute-type groups: `tagged`, `recommended`, `available`. Plus `isOwner`, `lock`, `canEdit`. |
+| 4 | `POST /aes/{aeId}/lock` / `DELETE` | Take or renew / release the edit lock. |
+| 5 | `PUT /aes/{aeId}/attributes` | Save the complete list of tagged attributes. |
+| 6 | `GET` / `POST /saved-filters`, `DELETE /saved-filters/{id}` | Up to 3 saved filters per user. |
+
+There is **no free-text search**. Typing in a dropdown narrows its options in the browser only.
 
 ## Package structure
 ```
 com.map
-├── common            security (UserContext, CurrentUser), search engine (Specification builder),
-│                     paging, error handling, saved filters, lookups
-├── ae                AuditableEntity, owners, AE attributes
-├── attributetagging  screen module
-├── riskassessment    screen module
-└── <screen>          one package per screen
+├── common            CurrentUser, error handling (ProblemDetail), paging helpers
+└── attributetagging  controllers, services, repositories, entities for the APIs above
 ```
-Shared logic goes in `common` or `ae`. A screen package contains only what is specific to that screen.
-
-## Every screen module has the same shape
-Paths are prefixed with the screen name, for example `/api/v1/attribute-tagging`:
-
-| Endpoint | Purpose |
-|---|---|
-| `POST /aes/search?page&pageSize&sort` | The only list endpoint. Body `SearchRequest` (`searchText`, `criteria[]`); `{}` = all AEs |
-| `GET /filters` | Filter definitions and every option across all AEs (same for every user) |
-| `GET /aes/{aeId}` | Screen-specific detail of one AE |
-| `PUT/POST/PATCH /aes/{aeId}/...` | Edit actions (owners only) |
-
-Attribute Tagging's edit endpoint is `PUT /attribute-tagging/aes/{aeId}/tags` (replaces Application, Model and Third Party tags; includes `version` for 409 on concurrent edits). Edit forms get their choices from `GET /lookups/{key}` (for example `/lookups/keyApplication`).
-
-Each screen implements a `ScreenDefinition` bean that declares its filters (from the shared `FilterField` catalog), its card mapping, default sort and any extra data it needs. The generic search service, controller logic, paging and `canEdit` come from `common`. **Adding a screen must not mean copying the search code.**
 
 ## Who is the caller
-- **Now (temporary, no JWT yet):** the UI has a "Who are you?" screen. The user picks themselves from `GET /users?q=` and the UI sends that id in the **`X-User-Id` header** on every request.
-  - Implement this as `HeaderCurrentUser`, active only under the Spring profile **`dev-auth`**. It reads `X-User-Id`, loads the user, and returns 401 if the header is missing or the id is unknown.
-  - `GET /users` is the only endpoint that works without `X-User-Id`.
-  - This is **not secure** (anyone can send any id). Never enable `dev-auth` in production.
-- **Later:** `JwtCurrentUser` reads the user from the token. Only the `CurrentUser` implementation changes; controllers, services and the API stay the same.
-- All code gets the caller **only** through the `CurrentUser` interface → `UserContext(userId, username, admin)`. Never read the header or token anywhere else.
+- **Now (temporary, no JWT):** the UI sends the user id in the **`X-User-Id`** header. Implement `HeaderCurrentUser`, active only under the Spring profile **`dev-auth`**: read the header, load the user, return 401 if missing or unknown. Not secure; never enable in production.
+- **Later:** `JwtCurrentUser` reads the token. Only the `CurrentUser` implementation changes.
+- Get the caller **only** through the `CurrentUser` interface. Never accept the user as a query parameter or body field.
 
-## Access rules (critical)
-- **Never accept the owner, user id or role as a query parameter or body field**, and never trust one sent that way.
-- Every user can **view** every AE.
-- "My AEs" is not a special mode: it is the **`aeOwner` filter**, which the UI preselects with the logged-in user. `aeOwner` is filtered like any multi-value attribute (`EXISTS` on the ownership table, values = user ids).
-- Only an owner (or admin) can **edit**. Every AE returned carries `canEdit`, computed on the server:
-  `canEdit = user.admin() || ae.ownerIds().contains(user.userId())`.
-- Every edit endpoint re-checks ownership and returns **403** if the caller is not an owner. `canEdit` in a response is for the UI only and is never a security check.
-- Return **404** only when the AE does not exist.
-- AEs can have several owners. Owners live in an ownership table; match on the stable user id, not the display name.
+## Filtering (API 1 and 2)
+- `filters` is a map of filter key → selected values. **OR within a key, AND across keys.** Unknown key → 400.
+- `aeId` and `aeName` values are AE ids; `aeOwner` values are user ids.
+- AE-table fields (`aeId`, `aeName`, `est`, `businessArea`, `businessDivision`, `auditTeam`) → `IN (...)` on the column.
+- Multi-value fields (owners and the attribute types) → **`EXISTS` subqueries** on the ownership / attribute tables, never joins (joins duplicate rows and break paging). Only `ACTIVE` attribute rows count.
+- Build queries with JPA `Specification`s; never concatenate SQL/JPQL.
+- Load a page in **two queries**: the page of AEs, then whatever the cards need for those ids (`WHERE ae_id IN (:ids)`): recommendation counts, owners for `isOwner`, current locks. No N+1, no `JOIN FETCH` with paging.
+- An empty result is **200** with `items: []`.
+- `/filters`: `SELECT DISTINCT` per filter across all AEs, `@Cacheable`, evicted when API 5 changes attributes.
 
-## Search and filtering rules
-- Build queries with JPA `Specification`s; do not concatenate SQL or JPQL strings.
-- Semantics: values inside one criterion are **OR**; different criteria are **AND**. `operator: EXCLUDE` means the AE has none of the values.
-- Multi-value attributes (legal entities, applications, cost centres and so on) live in an attribute table. Filter them with **`EXISTS` / `NOT EXISTS` subqueries**, never with joins, so rows don't duplicate and paging stays correct.
-- Validate each criterion's `field` against the screen's `ScreenDefinition.filters()`. An unknown field returns 400.
-- `searchText` is a case-insensitive contains match on the fields listed in the spec.
-- Paging: `page` starts at **1** (`spring.data.web.pageable.one-indexed-parameters=true` or convert explicitly). `pageSize` defaults to 1000 and must be capped at **1000**. Always append `aeId` to the sort as a tiebreaker.
-- Load a page in **two queries**: (1) the page of AEs, (2) their attributes, owners and counts with `WHERE ae_id IN (:ids)`, then group in Java. Never use `JOIN FETCH` on collections with paging, and never cause N+1 queries.
-- An empty result is **200** with an empty list, not 404.
-- List responses are `{ page, pageSize, totalRecords, totalPages, lastPage, items }` on every screen.
-- Every card has **`filterValues`**: a map from filter key to an array of codes, for **every** filter of the screen except `aeId` and `aeName`, including single-value fields such as `businessArea` (as a one-item array) and `aeOwner` (the owners' user ids). The UI filters with only `aeId`, `aeName`, `aeDescription` and `filterValues`, so a filter missing from this map silently breaks browser filtering. Add a test that each screen's card contains every filter key.
-- Detail responses carry the same keys as `attributes`, but as `{ value, label }` options.
-- For the `aeId` and `aeName` filters the values are AE ids (names can repeat).
-- Lookups for edit forms are `GET /lookups/{key}` where `key` is the filter key (for example `keyApplication`).
+## AE detail (API 3)
+- 11 groups in screen order. Each attribute appears in **exactly one** list:
+  - `tagged` = the AE's `ACTIVE` attributes (with comment, taggedBy, taggedOn),
+  - `recommended` = from the recommendation rules, minus tagged (with `reason`),
+  - `available` = every attribute of that type that is neither tagged nor recommended.
+- `isOwner` = caller is one of the AE's owners. `canEdit` = `isOwner` **and** caller holds a non-expired lock.
 
-## Filter options (`/filters`)
-- Options are `DISTINCT` values (with counts) across **all** AEs, read from the database, never from a partial page. `aeOwner` options are every user who owns at least one AE (value = user id, label = name).
-- Each option has `value` (a code or id sent back in criteria) and `label` (display text). For AE Name, `value` is the AE id because names repeat.
-- The response is the same for every user: cache it once per screen with `@Cacheable(key = "#screen")`. Evict it when an edit changes AE data.
-- Return every option; there is no typeahead (the largest list is about 2,500 AE names).
+## Edit lock (API 4)
+- Store one lock row per AE: `ae_id` (unique), `locked_by`, `locked_on`, `expires_at`.
+- **Expiry: 15 minutes after the last activity.** Activity = taking/renewing the lock (POST) or saving (API 5); each sets `expires_at = now + 15 min`.
+- POST rules: not an owner → 403. No lock or expired → caller gets it. Caller holds it → renew. Another owner holds a live lock → **409** with their name.
+- Take/renew must be **atomic** (one conditional `INSERT … ON CONFLICT` / `UPDATE … WHERE expires_at < now OR locked_by = :me`, or a unique constraint + retry) so two owners clicking at once can't both win.
+- DELETE releases only the caller's own lock; otherwise it does nothing and returns 204.
 
-## Response conventions
-- Page envelope: `{ page, pageSize, totalRecords, totalPages, lastPage, items }`.
-- Errors use Spring `ProblemDetail` (`application/problem+json`) with `status`, `title`, `detail`, and `errors[]` (`field`, `message`) for validation. Use a single `@RestControllerAdvice`; never return stack traces.
-- JSON fields in camelCase. Dates and times in ISO-8601 (UTC for timestamps). AE ids are **strings** (they have leading zeros).
-- Arrays are never null; return `[]`.
+## Update (API 5)
+- Body = the **complete** list of attributes that should be tagged after the save, each `{ attributeId, attributeType, comment }`.
+- Caller must be an owner (else 403) and hold the lock; if their lock expired and nobody else took it, renew it and continue; if another owner holds it → 409.
+- In one transaction, compare with the current `ACTIVE` rows:
+  - new → insert `ACTIVE` with comment (comment **required** → 400 if blank), `tagged_by`, `tagged_on`;
+  - missing from the list → set `INACTIVE` (keep the row for history);
+  - present in both → keep; save a changed comment.
+- Validate every `attributeId` exists and belongs to the given `attributeType` → 400 otherwise. Name and description come from the attribute table, never from the request.
+- Update the AE's `modified_on` / `modified_by`, renew the lock (it stays held), evict the `/filters` cache, return the AE as API 3.
 
-## Persistence
-- Schema changes go through the project's migration tool; never rely on `ddl-auto` outside local development.
-- Index every column used for filtering, for example `(attr_type, attr_value, ae_id)` and `(ae_id)` on the attribute table, and `(user_id, ae_id)` on the ownership table.
+## Saved filters (API 6)
+- Per user, **at most 3**. A 4th → **409** "You can save up to 3 filters". Duplicate name for the same user → 409.
+- Store `filters` as JSON. Users only see and delete their own (someone else's id → 404).
+
+## Conventions
+- Paging: `page` starts at 1; response `{ page, pageSize, totalRecords, totalPages, items }`.
+- Errors: Spring `ProblemDetail` (`application/problem+json`) from one `@RestControllerAdvice`; never stack traces.
+- JSON camelCase; ISO-8601 UTC timestamps; AE ids are strings (leading zeros); arrays never null.
+- Turn on response compression (`server.compression.enabled=true`).
 
 ## Tests
-For every screen and every change, cover at least:
-- the `aeOwner` filter (my AEs) vs no filter (all AEs),
-- `canEdit` true/false,
-- an edit by a non-owner returns 403,
-- OR within a filter, AND across filters, INCLUDE vs EXCLUDE,
-- paging stability (no duplicate or missing rows across pages),
-- unknown filter field returns 400.
-
-## Adding a new screen (checklist)
-1. Add the screen's paths and schemas to the spec, reusing the shared schemas, parameters and responses. Bundle and lint the spec.
-2. Regenerate the interfaces.
-3. Add any missing filters to the shared `FilterField` catalog.
-4. Create `<screen>/<Screen>ScreenDefinition`, the controller implementing the generated interface, and the edit service with the ownership check.
-5. Add tests from the list above.
+- Filters: OR within a key, AND across keys, `aeOwner`, unknown key → 400, empty result → 200.
+- Detail: each attribute in exactly one list; `canEdit` only for the owner holding the lock.
+- Lock: owner gets it; second owner → 409; non-owner → 403; expiry after 15 min; renew; concurrent take → only one wins; DELETE by non-holder is a no-op.
+- Update: add (comment required), remove (→ INACTIVE), keep, wrong type → 400, without lock → 409, non-owner → 403.
+- Saved filters: 4th → 409; can't delete another user's.
 
 ## Don't
-- Don't put the owner or user in request parameters or trust them from the client.
-- Don't duplicate search or paging logic inside a screen package.
+- Don't add endpoints or fields that aren't in the spec.
+- Don't take the user from a parameter or body, or trust `canEdit` from the client.
 - Don't use joins for multi-value filters or `JOIN FETCH` with paging.
-- Don't return 404 for an empty list, or 403/404 for viewing an AE the user doesn't own (viewing is allowed).
-- Don't change the API without updating the spec.
-- Don't document 500 on each operation; unexpected errors are handled once by the `@RestControllerAdvice`.
+- Don't hard-delete tagged attributes; set them `INACTIVE`.

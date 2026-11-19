@@ -1,111 +1,81 @@
 # Copilot instructions: myAuditPlan (mAP) UI
 
 ## What this app is
-myAuditPlan is an audit application made up of several screens (Attribute Tagging first, then Risk Assessment, Audit Plan and others). Almost every screen follows the same pattern:
+The **Attribute Tagging** screen of myAuditPlan:
 
-1. On opening, show the **Auditable Entities (AEs) assigned to the user**: the **AE Owner** filter is preselected with them. The filter bar's dropdowns list **every** value across all AEs.
-2. The user changes filters, or removes the AE Owner filter to see all AEs.
-3. The user clicks an AE to see its details, and can edit it **only if they are an owner**. Other AEs are view-only.
-
-Typical size: about 1,000–2,500 AEs in total; one user owns far fewer. This is small enough to filter in the browser.
+1. The user lands on the screen and sees the **Auditable Entities (AEs) they own**: the AE Owner filter starts preselected with them.
+2. They pick values in the dropdown filters to find the AEs they want.
+3. They open an AE and see its **11 attribute types**, each with three lists: **tagged**, **recommended** and **available**.
+4. An owner clicks **Edit** (takes the edit lock), **adds** or **removes** attributes in the browser, and clicks **Update** to save. Everyone else sees the AE view-only.
 
 ## Tech stack
-- React + TypeScript (strict mode), TanStack Query for server data
+- React + TypeScript (strict), TanStack Query for server data
 - Use the component library, router and styling already in `package.json`. Do not add a new UI library.
 
 ## The API spec is the contract
-- API types are generated with `openapi-typescript` from the bundled spec (`api/dist/openapi.bundled.yml`) into `src/api/generated.ts`. **Never hand-write API request or response types**, and never edit the generated file.
-- Call endpoints only as the spec defines them. If something is missing, flag that the spec needs changing; don't invent an endpoint or field.
-- All HTTP calls go through the shared API client in `src/api/`, which adds the user header (later the bearer token) and parses errors.
+- Generate types with `openapi-typescript` from the bundled spec (`api/dist/openapi.bundled.yml`) into `src/api/generated.ts`. **Never hand-write API types** or edit the generated file.
+- Call only the endpoints in the spec. If something is missing, flag that the spec needs changing.
+- All calls go through one API client in `src/api/` that adds the `X-User-Id` header (later the bearer token) and parses ProblemDetail errors.
+
+## The APIs (all under `/api/v1/attribute-tagging`)
+| # | Endpoint | When |
+|---|---|---|
+| 1 | `GET /filters` | On open: every dropdown with all its values |
+| 2 | `POST /aes/search?page&pageSize` | On open and on every filter change: `{ filters: { <key>: [values] } }` |
+| 3 | `GET /aes/{aeId}` | Opening an AE |
+| 4 | `POST /aes/{aeId}/lock` / `DELETE` | Edit / Done, Cancel, or switching AE |
+| 5 | `PUT /aes/{aeId}/attributes` | Update button |
+| 6 | `GET` / `POST /saved-filters`, `DELETE /saved-filters/{id}` | Saved Filters dropdown, "Add to Saved Filters" |
 
 ## Who is the user (temporary login)
-- There is no JWT login yet. The app starts on a **"Who are you?" screen**: a typeahead that calls `GET /users?q=` (min 2 characters, debounced 250 ms). The user **picks** their name from the list; free-typed names are never used.
-- Store the picked user `{ id, name }` in `sessionStorage` and in a `CurrentUserContext`. Then call `GET /me` to confirm it; on 401 go back to the "Who are you?" screen.
-- The API client adds **`X-User-Id: <id>`** to every request. Never put the user id in a URL or request body.
-- Show the user's name in the header with a "Switch user" action that clears the stored user and calls `queryClient.clear()`.
-- Keep all of this inside `src/auth/` so it can be swapped for a JWT login later without touching screens.
+- No JWT yet. The app starts on a **"Who are you?" screen**: a searchable dropdown built from the **`aeOwner` options of API 1**. The user picks their name; never use a free-typed name.
+- Store `{ id, name }` in `sessionStorage` and a `CurrentUserContext`. The API client sends **`X-User-Id: <id>`** on every call. On 401 → clear it and go back to this screen.
+- Show the name in the header with "Switch user" (clears the stored user and calls `queryClient.clear()`).
+- Keep this in `src/auth/` so it can be swapped for JWT later.
 
-## Folder structure
-```
-src/
-├── api/                 generated types, API client, query key factory
-├── auth/                "Who are you?" screen, CurrentUserContext (later: JWT login)
-├── shared/
-│   └── AeSearchPage/    filter bar, chips, saved filters, result list, local filtering
-└── features/
-    ├── attribute-tagging/   card, detail page, edit form for this screen
-    ├── risk-assessment/
-    └── <screen>/
-```
-A screen folder contains only what is specific to that screen. **Do not copy the search, filter or paging logic into a screen.**
+## Filter bar and list
+- Draw the dropdowns from API 1, in its order. Show each option's `label`; send its `value` (AE ids for AE ID / AE Name, user ids for AE Owner).
+- **Typing in a dropdown only narrows its options in the browser** (for example typing "2000" in AE ID shows 2000, 20001, 20002…). There is no search API and no free-text search box.
+- Dropdowns with thousands of options (AE ID, AE Name) must use a virtualized list.
+- Filter state = `{ <key>: [values] }`, exactly the API's `filters`. Initial state: `{ aeOwner: [<my id>] }`. Keep it in the URL query string.
+- Every change → API 2 with the new `filters`, page 1. Show chips for selected values; "Clear All Filters" → `{}` (all AEs).
+- Cards: AE name, AE ID, business area, last modified, "N Recommendations", description. `isOwner` → Edit option; otherwise View. If `lockedBy` is set, show "Being edited by <name>".
+- Paging from API 2 (`page`, `totalPages`).
 
-## Building a screen
-Each screen is the shared `AeSearchPage` plus its own card, detail page and edit form:
-```tsx
-<AeSearchPage
-  screen="attribute-tagging"
-  renderCard={(ae) => <TaggingCard ae={ae} />}
-  onOpen={(ae) => navigate(`/attribute-tagging/${ae.aeId}`)}
-/>
-```
-Each screen's endpoints are under `/api/v1/<screen>/...` and have the same shape: `POST /aes/search` (the only list endpoint), `GET /filters`, `GET /aes/{aeId}`, plus edit endpoints. List responses are always `{ page, pageSize, totalRecords, totalPages, lastPage, items }`. For Attribute Tagging the edit is `PUT /attribute-tagging/aes/{aeId}/tags`; the form's choices come from `GET /lookups/{key}` (for example `/lookups/keyApplication`), and it sends back `version` (409 means someone else changed it: reload and retry).
+## Saved filters
+- API 6 `GET` fills the Saved Filters dropdown; choosing one loads its `filters` and runs API 2.
+- "Add to Saved Filters" → `POST { name, filters }`. On 409 show the message (max 3) and offer to delete one.
 
-## Data loading (inside AeSearchPage)
-1. On open, fetch in parallel: `GET /filters`, saved filters for the screen, and `POST /aes/search?page=1&pageSize=1000` with `{"criteria":[{"field":"aeOwner","values":["<my id>"]}]}`. The **AE Owner** filter starts preselected with the logged-in user, so the user's own AEs show at once.
-2. In the background, load **all** AEs: `POST /aes/search` with `{}`, page by page (`useInfiniteQuery`) until `lastPage: true` (about 2,500 AEs, 3 pages). From then on the data set is **complete**.
-3. **When complete, apply every filter change in the browser**, with no API call. Before that, send the current filters to `POST /aes/search`.
-4. Show a skeleton while the first page loads and a clear empty state when nothing matches.
+## AE detail
+- API 3. For each of the 11 attribute types show three sections: **Tagged**, **Recommended** (with reason), **Available**.
+- `canEdit` false → everything read-only. If `isOwner` and `lock` is someone else's → "Being edited by <name>", Edit disabled. If `isOwner` and no lock → Edit enabled.
+- Never decide editability yourself from owners; use `isOwner`, `lock` and `canEdit` from the API.
 
-## Filter rules (must match the backend exactly)
-- Dropdowns and their options come **only from `/filters`**. Never build options from the loaded rows, which may be incomplete.
-- Show each option's `label`; send its `value`. For AE ID and AE Name, the value is the AE id because names repeat.
-- Show labels for codes on cards by looking them up in the `/filters` options (keep a `key → value → label` map). Detail pages already get labels in `attributes`.
-- Values inside one filter are **OR**; different filters are **AND**. `EXCLUDE` means the AE has none of the selected values.
-- Filter only on `aeId`, `aeName`, `aeDescription` (search text) and the card's **`filterValues`** map. For `aeId` and `aeName` the selected values are AE ids, so compare with `ae.aeId`. `aeOwner` values are user ids and are in `filterValues.aeOwner`. Every other filter key is in `filterValues` as an array, and matches if **any** of its codes is selected. A key missing from `filterValues` means the AE has no value.
-- `searchText` is a case-insensitive contains match, debounced by 250 ms.
-- `/filters` returns every option for every filter (there is no typeahead). The search box inside a dropdown filters that dropdown's options locally.
-- Put the local filtering in one pure function (`applyFilters(items, criteria, searchText)`) with unit tests, because its results must equal the server's.
-
-## Filter state and UI
-- Filter state = `{ searchText, criteria[] }`, exactly the API `SearchRequest`. Saved filters store it as `search`.
-- Initial state: `criteria = [{ field: 'aeOwner', values: [<my id>] }]`. There is no separate "my AEs / all AEs" switch; removing the AE Owner chip shows all AEs.
-- Keep it in the **URL query string** so views can be bookmarked and shared, and so the back button works.
-- Show selected values as chips (`<Filter label>: <option label> ✕`). "Clear All Filters" removes every filter, including AE Owner, and shows all AEs.
-- "Add to Saved Filters" saves `{ screen, name, search }`. Choosing a saved filter loads `search` into state.
-
-## Editing and permissions
-- Each AE has `canEdit`, computed by the server. **Use only `canEdit`** to decide whether to show edit controls. Never work it out by comparing owners on the client.
-- When `canEdit` is false, show the AE read-only (for example a lock icon and "View only"), with edit buttons hidden.
-- Still handle a **403** from an edit call (ownership can change): show a message and refresh the AE.
-- After a successful edit, invalidate the screen's list, filters and detail queries.
+## Editing
+1. **Edit** → API 4 `POST`. 200 → edit mode. 409 → show "Being edited by <name>" and stay view-only. 403 → view-only.
+2. **Keep the lock alive:** while in edit mode, call API 4 `POST` every **5 minutes** if the user has interacted in the last 15 minutes. The server expires the lock after 15 minutes without activity.
+3. **Add** (from Recommended or Available): moves the attribute into Tagged **in the browser only**, highlighted **green**, with a required **comment** field ("why are you tagging this?").
+4. **Remove** (from Tagged): marks it removed in the browser (struck through, red), undo-able.
+5. **Update** → API 5 with the **complete** list of attributes that should be tagged across all 11 types: every kept, added and not-removed item as `{ attributeId, attributeType, comment }`. Block Update while any added item has no comment. On 200 replace the AE with the response (highlights cleared) and stay in edit mode.
+6. **Done / Cancel** → API 4 `DELETE`, back to view mode. Cancel discards unsaved changes.
+7. **Opening another AE, leaving the screen or Switch user while in edit mode:** if there are unsaved changes, show a warning ("You have unsaved changes. Leaving releases your lock and discards them."). On confirm → API 4 `DELETE`, then continue. On tab close, call it with `fetch(..., { method: 'DELETE', keepalive: true })`; the 15-minute expiry covers anything that slips through.
+8. On 409 from API 5 (lock lost to another owner) → tell the user, reload the AE view-only; their unsaved changes can't be saved.
 
 ## TanStack Query
-- Build keys with a factory in `src/api/queryKeys.ts`, always including `screen` and the user id, for example `['aes', screen, userId]`. Filter options don't depend on the user: `['filters', screen]`.
-- Call `queryClient.clear()` on "Switch user" (later: logout) so the next user never sees cached data.
-- Use `staleTime` of about 5 minutes for lists and filters.
+- Keys: `['filters']`, `['aes', filters, page]`, `['ae', aeId]`, `['savedFilters', userId]`.
+- After API 5: set `['ae', aeId]` from the response, invalidate `['aes']` and `['filters']`.
+- `queryClient.clear()` on Switch user.
 
 ## Errors
-- Errors arrive as ProblemDetail (`status`, `title`, `detail`, `errors[]`). Show `detail` to the user; map `errors[]` onto form fields.
-- 401 → clear the stored user and go back to the "Who are you?" screen (later: log in again). 404 on detail → "AE not found". 5xx → a generic message with a retry button.
-
-## Performance and accessibility
-- Wrap filtering in `useMemo`; debounce text input.
-- Use pagination or list virtualization when more than about 200 cards are shown.
-- Dropdowns, chips and cards must work with the keyboard and have accessible labels.
+- ProblemDetail: show `detail`; map `errors[]` (for example `attributes[1].comment`) onto fields.
+- 401 → "Who are you?" screen. 404 → "AE not found". 5xx → generic message with retry.
 
 ## Tests
-- Unit tests for `applyFilters`: OR within a filter, AND across, INCLUDE vs EXCLUDE, multi-value `filterValues`, missing keys, aeId/aeName by id, search text.
-- Component tests (React Testing Library): local filtering vs server search before the data is complete, chips and Clear All, read-only display when `canEdit` is false, and the 403 message.
-
-## Adding a new screen (checklist)
-1. Make sure the screen's endpoints are in the spec, then regenerate `src/api/generated.ts`.
-2. Create `src/features/<screen>/` with its card, detail page and edit form.
-3. Add the route and use `AeSearchPage` with `screen="<screen>"`.
-4. Add tests from the list above.
+- Filter bar: preselected AE Owner, OR/AND building of `filters`, Clear All, typing narrows options.
+- Detail: three lists per type; read-only when `canEdit` is false; "being edited by" state.
+- Editing: add needs a comment, remove + undo, Update sends the complete list, lock renewal timer, warning on switching AE with unsaved changes, 409 handling.
 
 ## Don't
-- Don't hand-write API types or call endpoints that aren't in the spec.
-- Don't send the owner or user id to the API, or decide editability on the client.
-- Don't build dropdown options from loaded rows.
-- Don't duplicate `AeSearchPage` logic inside a screen.
-- Don't keep filter state only in component state; it belongs in the URL.
+- Don't add a free-text search or call endpoints not in the spec.
+- Don't send the user id anywhere but the header.
+- Don't save on Add/Remove; only Update calls the server.
