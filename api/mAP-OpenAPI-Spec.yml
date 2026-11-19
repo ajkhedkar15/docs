@@ -1,0 +1,555 @@
+openapi: '3.0.3'
+info:
+  title: myAuditPlan API Spec
+  version: 1.1.0
+  description: |
+    Open API specification for myAuditPlan.
+
+    Access scope
+      - The caller is identified from the bearer token. Every endpoint returns only
+        Auditable Entities where the caller is one of the AE owners.
+      - Owner is NEVER passed as a request parameter.
+      - An AE outside the caller's scope returns 404.
+
+    Screen flow (Attribute Tagging)
+      1. GET  /auditable-entities/filters       -> dropdowns
+      2. GET  /auditable-entities?page=1..N      -> AE cards (load all pages, pageSize up to 1000)
+      3. Filter in the browser once lastPage=true; until then POST /auditable-entities/search
+      4. GET  /auditable-entities/{aeId}         -> AE details on click
+servers:
+  - url: https://myAuditPlan/api/v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: AttributeTagging
+    description: Operations related to Attribute Tagging
+  - name: SavedFilters
+    description: User saved filter sets
+
+paths:
+  /auditable-entities:
+    get:
+      tags: [AttributeTagging]
+      summary: Get Auditable Entities of the logged-in user
+      description: Returns all Auditable Entities owned by the authenticated user, page by page.
+      operationId: getMyAuditableEntities
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Successfully retrieved Auditable Entities (empty list if the user has none)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditableEntityPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /auditable-entities/search:
+    post:
+      tags: [AttributeTagging]
+      summary: Search and filter the user's Auditable Entities
+      description: |
+        Values inside one criterion are OR'ed; different criteria are AND'ed.
+        operator EXCLUDE returns AEs having none of the values.
+      operationId: searchAuditableEntities
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            example:
+              searchText: fund
+              criteria:
+                - field: aeName
+                  operator: INCLUDE
+                  values: [AE001, AE002]
+                - field: keyLegalEntity
+                  operator: INCLUDE
+                  values: [LE-UK-01]
+      responses:
+        '200':
+          description: Matching Auditable Entities (empty list if none match)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditableEntityPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /auditable-entities/filters:
+    get:
+      tags: [AttributeTagging]
+      summary: Filter dropdowns and their options
+      description: Options are distinct values from the user's own Auditable Entities only.
+      operationId: getAuditableEntityFilters
+      responses:
+        '200':
+          description: Filters in screen order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Filter'
+              example:
+                - key: aeName
+                  label: AE Name
+                  type: MULTI_SELECT
+                  options:
+                    - { value: AE001, label: Fund Accounting Operations, count: 1 }
+                - key: keyLegalEntity
+                  label: Key Legal Entities
+                  type: MULTI_SELECT
+                  options:
+                    - { value: LE-UK-01, label: Example Bank UK Ltd, count: 12 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /auditable-entities/{aeId}:
+    get:
+      tags: [AttributeTagging]
+      summary: Get one Auditable Entity
+      operationId: getAuditableEntity
+      parameters:
+        - $ref: '#/components/parameters/AeId'
+      responses:
+        '200':
+          description: The Auditable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditableEntity'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /auditable-entities/{aeId}/recommendations:
+    get:
+      tags: [AttributeTagging]
+      summary: Recommendations for one Auditable Entity
+      operationId: getAuditableEntityRecommendations
+      parameters:
+        - $ref: '#/components/parameters/AeId'
+      responses:
+        '200':
+          description: Recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /saved-filters:
+    get:
+      tags: [SavedFilters]
+      summary: Saved filters of the logged-in user
+      operationId: getSavedFilters
+      parameters:
+        - name: screen
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [attribute-tagging]
+      responses:
+        '200':
+          description: Saved filters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedFilter'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [SavedFilters]
+      summary: Save the current filters
+      operationId: createSavedFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedFilterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Name already used
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /saved-filters/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    put:
+      tags: [SavedFilters]
+      summary: Update a saved filter
+      operationId: updateSavedFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedFilterRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [SavedFilters]
+      summary: Delete a saved filter
+      operationId: deleteSavedFilter
+      responses:
+        '204':
+          description: Deleted
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AeId:
+      name: aeId
+      in: path
+      required: true
+      schema:
+        type: string
+        example: AE001
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Page number (starts at 1)
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Records per page (max 1000)
+      schema:
+        type: integer
+        default: 1000
+        minimum: 1
+        maximum: 1000
+    Sort:
+      name: sort
+      in: query
+      required: false
+      description: 'field,asc|desc. Allowed: aeName, aeId, businessArea, modifiedOn'
+      schema:
+        type: string
+        default: aeName,asc
+
+  schemas:
+    AuditableEntityPage:
+      type: object
+      required: [page, pageSize, totalRecords, totalPages, lastPage, auditableEntities]
+      properties:
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 1000
+        totalRecords:
+          type: integer
+          example: 156
+        totalPages:
+          type: integer
+          example: 1
+        lastPage:
+          type: boolean
+          description: true when no more pages; client can then filter locally
+          example: true
+        auditableEntities:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditableEntity'
+
+    AuditableEntity:
+      type: object
+      required: [aeId, aeName, aeOwner, recommendationCount, attributes]
+      properties:
+        aeId:
+          type: string
+          example: AE001
+        aeName:
+          type: string
+          example: Fund Accounting Operations
+        aeDescription:
+          type: string
+          nullable: true
+          example: Performs fund accounting services
+        aeOwner:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+        businessArea:
+          type: string
+          nullable: true
+          example: Investment Services
+        division:
+          type: string
+          nullable: true
+          example: Global Delivery
+        recommendationCount:
+          type: integer
+          example: 12
+        attributes:
+          type: object
+          description: |
+            Tagged attributes keyed by filter key (keyLegalEntity, keyThirdParty,
+            keyApplication, keyModel, risk, archerRiskUnit, costCenter, location, product ...).
+            Values are codes; display labels come from /auditable-entities/filters.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            keyLegalEntity: [LE-UK-01]
+            keyApplication: [APP-221, APP-310]
+            costCenter: [CC-4410]
+        modifiedOn:
+          type: string
+          format: date-time
+        modifiedBy:
+          type: string
+          example: map-system
+
+    Person:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Stable user id (used for access checks)
+          example: '12345'
+        name:
+          type: string
+          example: John Smith
+
+    SearchRequest:
+      type: object
+      properties:
+        searchText:
+          type: string
+          maxLength: 100
+          description: Contains-search on aeId, aeName, aeDescription
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/Criterion'
+
+    Criterion:
+      type: object
+      required: [field, values]
+      properties:
+        field:
+          $ref: '#/components/schemas/FilterKey'
+        operator:
+          type: string
+          enum: [INCLUDE, EXCLUDE]
+          default: INCLUDE
+        values:
+          type: array
+          minItems: 1
+          items:
+            type: string
+
+    FilterKey:
+      type: string
+      enum:
+        - aeId
+        - aeName
+        - est
+        - risk
+        - keyLegalEntity
+        - keyThirdParty
+        - keyApplication
+        - businessArea
+        - businessDivision
+        - keyModel
+        - archerRiskUnit
+        - costCenter
+        - location
+        - product
+        - auditTeam
+
+    Filter:
+      type: object
+      required: [key, label, type, options]
+      properties:
+        key:
+          $ref: '#/components/schemas/FilterKey'
+        label:
+          type: string
+        type:
+          type: string
+          enum: [MULTI_SELECT, TYPEAHEAD]
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+
+    FilterOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        count:
+          type: integer
+
+    Recommendation:
+      type: object
+      description: Placeholder - align with the recommendations table
+      properties:
+        id:
+          type: integer
+          format: int64
+        type:
+          type: string
+          example: APPLICATION
+        value:
+          type: string
+          example: APP-221
+        label:
+          type: string
+        status:
+          type: string
+          enum: [OPEN, ACCEPTED, REJECTED]
+
+    SavedFilterRequest:
+      type: object
+      required: [screen, name, criteria]
+      properties:
+        screen:
+          type: string
+          enum: [attribute-tagging]
+        name:
+          type: string
+          maxLength: 100
+        searchText:
+          type: string
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/Criterion'
+
+    SavedFilter:
+      allOf:
+        - $ref: '#/components/schemas/SavedFilterRequest'
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
+              format: int64
+            createdOn:
+              type: string
+              format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+        title:
+          type: string
+        detail:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+  responses:
+    BadRequest:
+      description: Invalid Request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 400
+            title: Bad Request
+            detail: Invalid request parameters
+            errors:
+              - field: pageSize
+                message: must be less than or equal to 1000
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 401
+            title: Unauthorized
+            detail: Token is missing or expired
+    NotFound:
+      description: Not found or not owned by the user
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 404
+            title: Not Found
+            detail: Auditable Entity AE001 not found
+    ServerError:
+      description: Internal Server Error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 500
+            title: Internal Server Error
+            detail: Unexpected error, reference id 7f3c2a
