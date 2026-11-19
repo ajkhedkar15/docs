@@ -27,28 +27,16 @@ Option:
 FilterKey:
   type: string
   description: |
-    The dropdowns on the screen, in screen order. Filters that are also attribute types use the
-    same key (est, risk, thirdParty, asset, model, riskUnit, location, product).
-    - aeId, aeName, aeOwner, businessArea, businessDivision, costCenter, auditTeam - fields of the AE
-    - legalEntity - matches the Direct OR the Relevant Legal Entity
-    - the rest - the AE's tagged attributes of that type
+    The dropdowns on the screen, in screen order (AE Owner is preselected, not shown as a dropdown).
+    - aeOwner, aeId, aeName, businessArea, businessDivision - fields of the AE
+    - legalEntity - AEs tagged with that legal entity (a parent value also matches its children)
   enum:
     - aeOwner
     - aeId
     - aeName
-    - est
-    - risk
     - legalEntity
-    - thirdParty
-    - asset
     - businessArea
     - businessDivision
-    - model
-    - riskUnit
-    - costCenter
-    - location
-    - product
-    - auditTeam
 
 Filter:
   type: object

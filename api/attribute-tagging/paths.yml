@@ -67,7 +67,7 @@ aesSearch:
                 filters:
                   aeOwner: ['12345']
                   legalEntity: [LE-UK-01, LE-US-02]
-                  asset: [APP-221]
+                  businessDivision: [Corporate Divisions]
             allAes:
               summary: No filters - all AEs
               value: {}
@@ -89,7 +89,7 @@ aesSearch:
                   aeDescription: Performs fund accounting services
                   businessArea: Corporate Divisions - Enterprise Risk Management
                   modifiedOn: '2026-10-11T14:21:00Z'
-                  recommendationCount: 4
+                  recommendationCount: 49
                   isOwner: true
                   lockedBy:
                     id: '12377'
@@ -102,10 +102,11 @@ aesSearch:
 aeDetail:
   get:
     tags: [AttributeTagging]
-    summary: 3. One AE with tagged, recommended and available attributes
+    summary: 3. One AE with its 11 attribute types - tagged and recommended
     description: |
       Anyone can view, including the recommendations. canEdit is true only for the owner who
-      holds the lock; everyone else sees the three lists read-only.
+      holds the lock; everyone else sees the sections read-only.
+      All Available is not included: it is the same for every AE (API 6).
     operationId: getAe
     parameters:
       - $ref: '../common/parameters.yml#/AeId'
@@ -139,31 +140,38 @@ aeDetail:
               modifiedBy:
                 id: '12345'
                 name: John Smith
+              recommendationCount: 49
               attributeTypes:
-                - type: asset
-                  label: Assets (Applications)
+                - type: legalEntity
+                  label: Key Legal Entities
+                  description: Legal entities the AE operates through
+                  recommendationCount: 47
                   tagged:
-                    - attributeId: APP-221
-                      attributeType: asset
-                      name: Fund Ledger
-                      description: General ledger for fund accounting
-                      comment: Core ledger for this fund
+                    - attributeId: LE-UK-01
+                      attributeType: legalEntity
+                      name: Example Bank UK Ltd
+                      description: UK booking entity
+                      parentId: LE-UK
+                      hasChildren: false
+                      path: [Example Bank Group, Example Bank UK]
+                      comment: UK booking entity for this fund
                       status: ACTIVE
                       taggedBy:
                         id: '12345'
                         name: John Smith
                       taggedOn: '2026-10-11T14:21:00Z'
                   recommended:
-                    - attributeId: APP-512
-                      attributeType: asset
-                      name: Pricing Engine
-                      description: Prices securities daily
+                    - attributeId: LE-DE
+                      attributeType: legalEntity
+                      name: Example Bank Germany
+                      parentId: null
+                      hasChildren: true
                       reason: Used by 3 AEs in the same business area
-                  available:
-                    - attributeId: APP-310
-                      attributeType: asset
-                      name: NAV Calculator
-                      description: Calculates daily net asset value
+                - type: est
+                  label: Est
+                  recommendationCount: 0
+                  tagged: []
+                  recommended: []
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
       '404':
@@ -222,8 +230,9 @@ aeAttributes:
       - Tagged now, missing from the list -> removed (stored as INACTIVE).
       - In the list and already tagged -> kept; a changed comment is saved.
       The caller must hold the lock (an expired lock that nobody else took is renewed).
+      Every item must be an attribute without children (400 otherwise).
       After saving, the recommendation rules run again for this AE, because the new tags can
-      change what is recommended. The response therefore has fresh recommended and available lists.
+      change what is recommended. The response therefore has fresh recommended lists and counts.
       The lock is kept, so the user can update again.
     operationId: updateAeAttributes
     parameters:
@@ -236,18 +245,18 @@ aeAttributes:
             $ref: './schemas.yml#/AttributesUpdateRequest'
           example:
             attributes:
-              - attributeId: APP-221
-                attributeType: asset
-                comment: Core ledger for this fund
-              - attributeId: APP-512
-                attributeType: asset
-                comment: Added from recommendation - used for pricing
               - attributeId: LE-UK-01
-                attributeType: directLegalEntity
-                comment: UK booking entity
+                attributeType: legalEntity
+                comment: UK booking entity for this fund
+              - attributeId: LE-DE-02
+                attributeType: legalEntity
+                comment: Picked as a child of Example Bank Germany (recommended)
+              - attributeId: APP-221
+                attributeType: application
+                comment: Core ledger for this fund
     responses:
       '200':
-        description: Saved. Returns the AE as API 3 does, with the new tagged list and the recomputed recommended and available lists.
+        description: Saved. Returns the AE as API 3 does, with the new tagged lists and the recomputed recommendations.
         content:
           application/json:
             schema:
@@ -266,7 +275,7 @@ aeAttributes:
 savedFilters:
   get:
     tags: [AttributeTagging]
-    summary: 6a. The user's saved filters (up to 3)
+    summary: 7a. The user's saved filters (up to 3)
     operationId: getSavedFilters
     responses:
       '200':
@@ -282,7 +291,7 @@ savedFilters:
         $ref: '../common/responses.yml#/Unauthorized'
   post:
     tags: [AttributeTagging]
-    summary: 6b. Save the current filters
+    summary: 7b. Save the current filters
     description: At most 3 per user. A 4th returns 409; the user deletes one first.
     operationId: createSavedFilter
     requestBody:
@@ -320,7 +329,7 @@ savedFilters:
 savedFilterById:
   delete:
     tags: [AttributeTagging]
-    summary: 6c. Delete a saved filter
+    summary: 7c. Delete a saved filter
     operationId: deleteSavedFilter
     parameters:
       - name: id
@@ -332,6 +341,85 @@ savedFilterById:
     responses:
       '204':
         description: Deleted
+      '401':
+        $ref: '../common/responses.yml#/Unauthorized'
+      '404':
+        $ref: '../common/responses.yml#/NotFound'
+
+attributesByType:
+  get:
+    tags: [AttributeTagging]
+    summary: 6a. All Available - the top-level attributes of one type
+    description: |
+      Every top-level attribute of the type (parentId = null). For types without a hierarchy that
+      is every attribute. The same for every AE, so the server caches it and the UI loads it once,
+      when a section is opened in edit mode. The UI hides the ones already tagged or recommended;
+      its search box filters this list in the browser.
+    operationId: getAttributes
+    parameters:
+      - $ref: '../common/parameters.yml#/AttributeTypePath'
+    responses:
+      '200':
+        description: Top-level attributes, sorted by name
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: './schemas.yml#/Attribute'
+            example:
+              - attributeId: LE-DE
+                attributeType: legalEntity
+                name: Example Bank Germany
+                parentId: null
+                hasChildren: true
+              - attributeId: LE-SG-01
+                attributeType: legalEntity
+                name: Example Bank Singapore Pte
+                parentId: null
+                hasChildren: false
+      '400':
+        $ref: '../common/responses.yml#/BadRequest'
+      '401':
+        $ref: '../common/responses.yml#/Unauthorized'
+
+attributeChildren:
+  get:
+    tags: [AttributeTagging]
+    summary: 6b. Children of one attribute (Required Dependency dialog)
+    description: |
+      Called when the user adds an attribute that has children. The dialog lists these; the user
+      must pick at least one. A picked child that also has children is opened the same way, until
+      every pick is an attribute without children. Only those are added to Tagged.
+    operationId: getAttributeChildren
+    parameters:
+      - $ref: '../common/parameters.yml#/AttributeTypePath'
+      - name: attributeId
+        in: path
+        required: true
+        schema:
+          type: string
+          example: LE-DE
+    responses:
+      '200':
+        description: Direct children, sorted by name
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: './schemas.yml#/Attribute'
+            example:
+              - attributeId: LE-DE-01
+                attributeType: legalEntity
+                name: Example Bank Germany AG
+                parentId: LE-DE
+                hasChildren: false
+              - attributeId: LE-DE-02
+                attributeType: legalEntity
+                name: Example Bank Germany Custody GmbH
+                parentId: LE-DE
+                hasChildren: false
       '401':
         $ref: '../common/responses.yml#/Unauthorized'
       '404':
