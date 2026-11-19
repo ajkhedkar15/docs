@@ -68,16 +68,8 @@ security:
   - bearerAuth: []
 
 tags:
-  - name: AttributeTaggingFilters
-    description: Filter dropdowns (API 1)
-  - name: AttributeTaggingAes
-    description: AE list and AE detail (API 2, 3)
-  - name: AttributeTaggingLock
-    description: Edit lock (API 4)
-  - name: AttributeTaggingTags
-    description: Update tags, All Available and children (API 5, 6)
-  - name: AttributeTaggingSavedFilters
-    description: Saved filters (API 7)
+  - name: AttributeTagging
+    description: Attribute Tagging screen - filters, AE list and detail, edit lock, tagging, saved filters
 
 paths:
   /attribute-tagging/filters:
