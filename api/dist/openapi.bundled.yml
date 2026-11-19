@@ -1,0 +1,1074 @@
+openapi: 3.0.3
+info:
+  title: myAuditPlan API Spec
+  version: 2.1.0
+  description: |
+    Open API specification for myAuditPlan (mAP).
+
+    ## Structure
+    - **Shared** endpoints are at the root: current user, core AE info, saved filters, lookups.
+    - **Each screen** has its own prefix (`/attribute-tagging`, later `/risk-assessment`, `/audit-plan` ...)
+      and the same five kinds of endpoint: list, search, filters, detail, edit.
+
+    ## Who is the caller
+    - **Now (temporary):** the UI shows a "Who are you?" screen. The user picks themselves from
+      `GET /users?q=`, and the UI sends that user's id in the `X-User-Id` header on every call.
+      Enabled only with the backend `dev-auth` profile. It is not secure: anyone can send any id.
+    - **Later:** a JWT bearer token. The backend reads the user from the token instead of the header;
+      no endpoint, parameter or response changes.
+    - Either way the user is **never** a query parameter or a body field.
+
+    ## View vs edit
+    - Every user can **view** every Auditable Entity (AE).
+    - Only an AE owner (or an admin) can **edit** it.
+    - Every AE in a response carries `canEdit`, computed by the server. The UI shows the rest read-only.
+    - Edit endpoints re-check ownership and return **403** for non-owners. 404 means the AE does not exist.
+
+    ## scope
+    - `MINE` (default): AEs where the caller is an owner. Used when a screen opens.
+    - `ALL`: every AE.
+
+    ## Search semantics
+    Values inside one criterion are OR'ed; different criteria are AND'ed.
+    `EXCLUDE` returns AEs that have none of the values.
+
+    ## Paging
+    `page` starts at 1; `pageSize` defaults to 1000 and is capped at 1000.
+    `aeId` is always added to the sort as a tiebreaker.
+
+    ## Screen flow (same for every screen)
+    1. `GET /<screen>/filters?scope=MINE` and `GET /<screen>/aes?scope=MINE&page=1` on open.
+    2. Load the remaining pages until `lastPage=true`, then filter in the browser.
+       Until then, use `POST /<screen>/aes/search`.
+    3. "All AEs": the same calls with `scope=ALL`.
+    4. Click an AE: `GET /<screen>/aes/{aeId}`. Edit only when `canEdit` is true.
+  license:
+    name: Proprietary
+servers:
+  - url: https://myAuditPlan/api/v1
+security:
+  - devUserHeader: []
+  - bearerAuth: []
+tags:
+  - name: Shared
+    description: Current user, core AE info, saved filters and lookups used by every screen
+  - name: AttributeTagging
+    description: Attribute Tagging screen - review and assign Apps, Models and Third Party tags
+paths:
+  /users:
+    get:
+      tags:
+        - Shared
+      summary: Find users (for the temporary "Who are you?" screen)
+      description: |
+        Contains-search on user name. Called without X-User-Id, because the user has not picked
+        themselves yet. Will be removed or restricted once JWT login is in place.
+      operationId: searchUsers
+      security: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Matching users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Person'
+              example:
+                - id: '12345'
+                  name: John Smith
+                - id: '12377'
+                  name: Johanna Smithers
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /me:
+    get:
+      tags:
+        - Shared
+      summary: Current user
+      description: |
+        Who the caller is: from X-User-Id for now, from the bearer token later.
+        The UI calls this after the "Who are you?" screen to confirm the id is valid.
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: The current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auditable-entities/{aeId}:
+    get:
+      tags:
+        - Shared
+      summary: Core info of one Auditable Entity
+      description: Any user can view any AE. Screens use their own detail endpoint for screen-specific data.
+      operationId: getAuditableEntity
+      parameters:
+        - $ref: '#/components/parameters/AeId'
+      responses:
+        '200':
+          description: The AE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AeSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /saved-filters:
+    get:
+      tags:
+        - Shared
+      summary: The caller's saved filters for one screen
+      operationId: getSavedFilters
+      parameters:
+        - name: screen
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/ScreenId'
+      responses:
+        '200':
+          description: Saved filters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedFilter'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Shared
+      summary: Save the current filters
+      operationId: createSavedFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedFilterRequest'
+            example:
+              screen: attribute-tagging
+              name: UK legal entities
+              scope: ALL
+              criteria:
+                - field: keyLegalEntity
+                  operator: INCLUDE
+                  values:
+                    - LE-UK-01
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /saved-filters/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+    put:
+      tags:
+        - Shared
+      summary: Update one of the caller's saved filters
+      operationId: updateSavedFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedFilterRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedFilter'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Shared
+      summary: Delete one of the caller's saved filters
+      operationId: deleteSavedFilter
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /lookups/{type}:
+    get:
+      tags:
+        - Shared
+      summary: Reference data for edit forms
+      description: |
+        All possible values of a list (for example every application), not only those already
+        used on AEs. Used when assigning tags. Filter dropdowns use the screen's /filters instead.
+      operationId: getLookup
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/LookupType'
+        - name: q
+          in: query
+          required: false
+          description: Optional contains-search on value or label
+          schema:
+            type: string
+            maxLength: 100
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Matching values
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FilterOption'
+              example:
+                - value: APP-221
+                  label: APP-221 Fund Ledger
+                - value: APP-310
+                  label: APP-310 NAV Calculator
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /attribute-tagging/aes:
+    get:
+      tags:
+        - AttributeTagging
+      summary: Attribute Tagging cards (mine by default, or all)
+      description: Sort fields allowed - aeName, aeId, businessArea, modifiedOn.
+      operationId: getAttributeTaggingAes
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: A page of AEs (empty list if none)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeTaggingPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attribute-tagging/aes/search:
+    post:
+      tags:
+        - AttributeTagging
+      summary: Search and filter Attribute Tagging cards
+      description: |
+        Filters allowed on this screen - aeId, aeName, est, risk, keyLegalEntity, keyThirdParty,
+        keyApplication, businessArea, businessDivision, keyModel, archerRiskUnit, costCenter,
+        location, product, auditTeam.
+      operationId: searchAttributeTaggingAes
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            example:
+              scope: ALL
+              searchText: equity
+              criteria:
+                - field: aeName
+                  operator: INCLUDE
+                  values:
+                    - '000000004561'
+                    - '000000004890'
+                - field: keyLegalEntity
+                  operator: INCLUDE
+                  values:
+                    - LE-UK-01
+                - field: costCenter
+                  operator: EXCLUDE
+                  values:
+                    - CC-9999
+      responses:
+        '200':
+          description: Matching AEs (empty list if none match)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeTaggingPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attribute-tagging/filters:
+    get:
+      tags:
+        - AttributeTagging
+      summary: Filter dropdowns for Attribute Tagging
+      description: Options are distinct values from the AEs in the requested scope, in screen order.
+      operationId: getAttributeTaggingFilters
+      parameters:
+        - $ref: '#/components/parameters/Scope'
+      responses:
+        '200':
+          description: Filters in screen order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Filter'
+              example:
+                - key: aeName
+                  label: AE Name
+                  type: MULTI_SELECT
+                  options:
+                    - value: '000000004561'
+                      label: State Street IM Systematic Equity
+                      count: 1
+                - key: keyLegalEntity
+                  label: Key Legal Entities
+                  type: MULTI_SELECT
+                  options:
+                    - value: LE-UK-01
+                      label: Example Bank UK Ltd
+                      count: 12
+                - key: keyThirdParty
+                  label: Key Third Parties
+                  type: TYPEAHEAD
+                  options: []
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attribute-tagging/filters/{key}/options:
+    get:
+      tags:
+        - AttributeTagging
+      summary: Typeahead options for one filter
+      description: Only for filters returned as TYPEAHEAD by /attribute-tagging/filters.
+      operationId: getAttributeTaggingFilterOptions
+      parameters:
+        - $ref: '#/components/parameters/FilterKeyPath'
+        - $ref: '#/components/parameters/TypeaheadQuery'
+        - $ref: '#/components/parameters/Scope'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Matching options
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FilterOption'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /attribute-tagging/aes/{aeId}:
+    get:
+      tags:
+        - AttributeTagging
+      summary: Attribute Tagging detail of one AE
+      description: Any user can view. canEdit decides whether the edit form is shown.
+      operationId: getAttributeTaggingAe
+      parameters:
+        - $ref: '#/components/parameters/AeId'
+      responses:
+        '200':
+          description: The AE with its tags
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeTaggingDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attribute-tagging/aes/{aeId}/tags:
+    put:
+      tags:
+        - AttributeTagging
+      summary: Assign Application, Model and Third Party tags (owners only)
+      description: Replaces the three tag lists. The server checks that the caller is an owner.
+      operationId: updateAttributeTaggingTags
+      parameters:
+        - $ref: '#/components/parameters/AeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagUpdateRequest'
+      responses:
+        '200':
+          description: Updated AE detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeTaggingDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /attribute-tagging/aes/{aeId}/recommendations:
+    get:
+      tags:
+        - AttributeTagging
+      summary: Recommendations for one AE
+      operationId: getAttributeTaggingRecommendations
+      parameters:
+        - $ref: '#/components/parameters/AeId'
+      responses:
+        '200':
+          description: Recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Planned. The token carries the user id and username.
+    devUserHeader:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: |
+        Temporary, until JWT is in place. The id of the user picked on the "Who are you?" screen.
+        Only accepted when the backend runs with the dev-auth profile. Not secure.
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    AeId:
+      name: aeId
+      in: path
+      required: true
+      description: AE id (string; keeps leading zeros)
+      schema:
+        type: string
+        example: '000000004561'
+    Scope:
+      name: scope
+      in: query
+      required: false
+      description: MINE = AEs where the caller is an owner (default); ALL = every AE
+      schema:
+        $ref: '#/components/schemas/Scope'
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Page number (starts at 1)
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Records per page (max 1000)
+      schema:
+        type: integer
+        default: 1000
+        minimum: 1
+        maximum: 1000
+    Sort:
+      name: sort
+      in: query
+      required: false
+      description: field,asc|desc. Allowed fields are listed per screen. aeId is always added as a tiebreaker.
+      schema:
+        type: string
+        default: aeName,asc
+    FilterKeyPath:
+      name: key
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/FilterKey'
+    TypeaheadQuery:
+      name: q
+      in: query
+      required: true
+      description: Text the user has typed (case-insensitive contains)
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+  schemas:
+    Person:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          description: Stable user id (used for ownership checks)
+          example: '12345'
+        name:
+          type: string
+          example: John Smith
+    ErrorResponse:
+      type: object
+      description: RFC 7807 problem detail (Spring ProblemDetail)
+      properties:
+        status:
+          type: integer
+        title:
+          type: string
+        detail:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+    CurrentUser:
+      type: object
+      required:
+        - id
+        - name
+        - roles
+      properties:
+        id:
+          type: string
+          example: '12345'
+        name:
+          type: string
+          example: John Smith
+        username:
+          type: string
+          example: jsmith
+        roles:
+          type: array
+          items:
+            type: string
+          example:
+            - AE_USER
+    AeSummary:
+      type: object
+      description: Core AE fields shared by every screen. Screen cards extend this.
+      required:
+        - aeId
+        - aeName
+        - aeOwner
+        - canEdit
+      properties:
+        aeId:
+          type: string
+          example: '000000004561'
+        aeName:
+          type: string
+          example: State Street IM Systematic Equity
+        aeDescription:
+          type: string
+          nullable: true
+          example: Performs fund accounting services
+        aeOwner:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+        businessArea:
+          type: string
+          nullable: true
+          example: Corporate Divisions - Enterprise Risk Management
+        division:
+          type: string
+          nullable: true
+          example: Corporate Divisions
+        canEdit:
+          type: boolean
+          description: true if the caller is an owner of this AE (or an admin). false means view only.
+          example: true
+        modifiedOn:
+          type: string
+          format: date-time
+          example: '2026-10-11T14:21:00Z'
+        modifiedBy:
+          type: string
+          example: map-system
+    ScreenId:
+      type: string
+      description: Screen identifier. Add new screens here.
+      enum:
+        - attribute-tagging
+    Scope:
+      type: string
+      enum:
+        - MINE
+        - ALL
+      default: MINE
+    FilterKey:
+      type: string
+      description: |
+        Catalog of every filter used across screens. Each screen accepts only its own subset
+        (an unknown field for that screen returns 400).
+      enum:
+        - aeId
+        - aeName
+        - est
+        - risk
+        - keyLegalEntity
+        - keyThirdParty
+        - keyApplication
+        - businessArea
+        - businessDivision
+        - keyModel
+        - archerRiskUnit
+        - costCenter
+        - location
+        - product
+        - auditTeam
+    Criterion:
+      type: object
+      required:
+        - field
+        - values
+      properties:
+        field:
+          $ref: '#/components/schemas/FilterKey'
+        operator:
+          type: string
+          enum:
+            - INCLUDE
+            - EXCLUDE
+          default: INCLUDE
+        values:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+    SavedFilterRequest:
+      type: object
+      required:
+        - screen
+        - name
+        - criteria
+      properties:
+        screen:
+          $ref: '#/components/schemas/ScreenId'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: UK legal entities
+        scope:
+          $ref: '#/components/schemas/Scope'
+        searchText:
+          type: string
+          maxLength: 100
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/Criterion'
+    SavedFilter:
+      allOf:
+        - $ref: '#/components/schemas/SavedFilterRequest'
+        - type: object
+          required:
+            - id
+          properties:
+            id:
+              type: integer
+              format: int64
+              example: 42
+            createdOn:
+              type: string
+              format: date-time
+    LookupType:
+      type: string
+      description: Reference data lists (all values, not only those already used on AEs)
+      enum:
+        - application
+        - model
+        - thirdParty
+        - legalEntity
+        - costCenter
+        - location
+        - product
+    FilterOption:
+      type: object
+      required:
+        - value
+        - label
+      properties:
+        value:
+          type: string
+          description: Sent back in criteria (a code or id)
+          example: LE-UK-01
+        label:
+          type: string
+          description: Shown in dropdowns and chips
+          example: Example Bank UK Ltd
+        count:
+          type: integer
+          description: Number of AEs in the requested scope with this value
+          example: 12
+    PageMeta:
+      type: object
+      required:
+        - page
+        - pageSize
+        - totalRecords
+        - totalPages
+        - lastPage
+      properties:
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 1000
+        totalRecords:
+          type: integer
+          example: 156
+        totalPages:
+          type: integer
+          example: 1
+        lastPage:
+          type: boolean
+          description: true when there are no more pages; the client can then filter locally
+          example: true
+    AttributeTaggingCard:
+      description: One AE card on the Attribute Tagging screen
+      allOf:
+        - $ref: '#/components/schemas/AeSummary'
+        - type: object
+          required:
+            - recommendationCount
+            - attributes
+          properties:
+            recommendationCount:
+              type: integer
+              description: Shown as "N Recommendations"
+              example: 4
+            attributes:
+              type: object
+              description: |
+                Tagged attributes keyed by filter key. Values are codes; labels come from /attribute-tagging/filters.
+                A missing key means the AE has no values for it.
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+              example:
+                keyLegalEntity:
+                  - LE-UK-01
+                keyApplication:
+                  - APP-221
+                  - APP-310
+                keyModel:
+                  - MDL-17
+                keyThirdParty:
+                  - TP-0091
+                costCenter:
+                  - CC-4410
+    AttributeTaggingPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required:
+            - auditableEntities
+          properties:
+            auditableEntities:
+              type: array
+              items:
+                $ref: '#/components/schemas/AttributeTaggingCard'
+    SearchRequest:
+      type: object
+      properties:
+        scope:
+          $ref: '#/components/schemas/Scope'
+        searchText:
+          type: string
+          maxLength: 100
+          description: Case-insensitive contains match on aeId, aeName and aeDescription
+        criteria:
+          type: array
+          maxItems: 15
+          items:
+            $ref: '#/components/schemas/Criterion'
+    Filter:
+      type: object
+      required:
+        - key
+        - label
+        - type
+        - options
+      properties:
+        key:
+          $ref: '#/components/schemas/FilterKey'
+        label:
+          type: string
+          example: Key Legal Entities
+        type:
+          type: string
+          description: TYPEAHEAD filters have no options; use the screen's /filters/{key}/options endpoint
+          enum:
+            - MULTI_SELECT
+            - TYPEAHEAD
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+    Tag:
+      type: object
+      required:
+        - value
+        - label
+      properties:
+        value:
+          type: string
+          example: APP-221
+        label:
+          type: string
+          example: APP-221 Fund Ledger
+    AttributeTaggingDetail:
+      description: Everything the detail page shows for one AE
+      allOf:
+        - $ref: '#/components/schemas/AeSummary'
+        - type: object
+          required:
+            - tags
+            - recommendationCount
+          properties:
+            recommendationCount:
+              type: integer
+              example: 4
+            tags:
+              type: object
+              description: Assigned tags with labels, grouped by kind
+              required:
+                - keyApplication
+                - keyModel
+                - keyThirdParty
+              properties:
+                keyApplication:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Tag'
+                keyModel:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Tag'
+                keyThirdParty:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Tag'
+            attributes:
+              type: object
+              description: Other (read-only on this screen) attributes, with labels
+              additionalProperties:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tag'
+            version:
+              type: integer
+              description: Send back in TagUpdateRequest to detect concurrent edits
+              example: 7
+    TagUpdateRequest:
+      type: object
+      description: |
+        Replaces the AE's Application, Model and Third Party tags with these lists.
+        Values come from /lookups/{type}.
+      required:
+        - keyApplication
+        - keyModel
+        - keyThirdParty
+        - version
+      properties:
+        keyApplication:
+          type: array
+          items:
+            type: string
+          example:
+            - APP-221
+            - APP-310
+        keyModel:
+          type: array
+          items:
+            type: string
+          example:
+            - MDL-17
+        keyThirdParty:
+          type: array
+          items:
+            type: string
+          example:
+            - TP-0091
+        version:
+          type: integer
+          description: The version read from the detail endpoint. A different current version returns 409.
+          example: 7
+    Recommendation:
+      type: object
+      description: Placeholder shape - align with the recommendations table
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 901
+        type:
+          type: string
+          enum:
+            - APPLICATION
+            - MODEL
+            - THIRD_PARTY
+        value:
+          type: string
+          example: APP-512
+        label:
+          type: string
+          example: APP-512 Pricing Engine
+        reason:
+          type: string
+          example: Used by 3 AEs in the same business area
+        status:
+          type: string
+          enum:
+            - OPEN
+            - ACCEPTED
+            - REJECTED
+  responses:
+    BadRequest:
+      description: Invalid request (unknown filter field, pageSize over 1000, bad sort field ...)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 400
+            title: Bad Request
+            detail: Invalid request parameters
+            errors:
+              - field: pageSize
+                message: must be less than or equal to 1000
+    Unauthorized:
+      description: No user identified (missing or unknown X-User-Id now; missing or expired token later)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 401
+            title: Unauthorized
+            detail: No user identified. Pick your name again.
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 404
+            title: Not Found
+            detail: Auditable Entity 000000004561 not found
+    Conflict:
+      description: The resource changed since it was read, or a name is already used
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 409
+            title: Conflict
+            detail: Auditable Entity 000000004561 was changed by someone else. Reload and try again.
+    ServerError:
+      description: Internal Server Error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 500
+            title: Internal Server Error
+            detail: Unexpected error, reference id 7f3c2a
+    Forbidden:
+      description: The caller can view this AE but is not an owner, so cannot edit it
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 403
+            title: Forbidden
+            detail: Only an owner of Auditable Entity 000000004561 can edit it

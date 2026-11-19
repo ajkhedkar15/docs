@@ -1,0 +1,68 @@
+BadRequest:
+  description: Invalid request (unknown filter field, pageSize over 1000, bad sort field ...)
+  content:
+    application/problem+json:
+      schema:
+        $ref: './schemas.yml#/ErrorResponse'
+      example:
+        status: 400
+        title: Bad Request
+        detail: Invalid request parameters
+        errors:
+          - field: pageSize
+            message: must be less than or equal to 1000
+
+Unauthorized:
+  description: No user identified (missing or unknown X-User-Id now; missing or expired token later)
+  content:
+    application/problem+json:
+      schema:
+        $ref: './schemas.yml#/ErrorResponse'
+      example:
+        status: 401
+        title: Unauthorized
+        detail: No user identified. Pick your name again.
+
+Forbidden:
+  description: The caller can view this AE but is not an owner, so cannot edit it
+  content:
+    application/problem+json:
+      schema:
+        $ref: './schemas.yml#/ErrorResponse'
+      example:
+        status: 403
+        title: Forbidden
+        detail: Only an owner of Auditable Entity 000000004561 can edit it
+
+NotFound:
+  description: Not found
+  content:
+    application/problem+json:
+      schema:
+        $ref: './schemas.yml#/ErrorResponse'
+      example:
+        status: 404
+        title: Not Found
+        detail: Auditable Entity 000000004561 not found
+
+Conflict:
+  description: The resource changed since it was read, or a name is already used
+  content:
+    application/problem+json:
+      schema:
+        $ref: './schemas.yml#/ErrorResponse'
+      example:
+        status: 409
+        title: Conflict
+        detail: Auditable Entity 000000004561 was changed by someone else. Reload and try again.
+
+ServerError:
+  description: Internal Server Error
+  content:
+    application/problem+json:
+      schema:
+        $ref: './schemas.yml#/ErrorResponse'
+      example:
+        status: 500
+        title: Internal Server Error
+        detail: Unexpected error, reference id 7f3c2a
