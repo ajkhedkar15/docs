@@ -268,6 +268,20 @@ public class AttributeTaggingFilters implements ScreenFilters {
 - Update: add (comment required), remove (→ INACTIVE), keep, wrong type → 400, attribute with children → 400, without lock → 409, non-owner → 403, recommendations recomputed.
 - Saved filters: 4th → 409; can't delete another user's.
 
+## Coding practices
+Full standards: `standards/coding-standards.md` in the docs repo. The essentials:
+- **Formatting:** Spotless (google-java-format). Don't hand-format.
+- **Injection:** constructor injection only (`@RequiredArgsConstructor`, `private final`). No field `@Autowired`.
+- **Data:** records for immutable data. Never return `null` collections; `Optional` only as a return type.
+- **Methods:** short (under ~30 lines), one job, clear names. No magic values: use enums and constants. Configuration through `@ConfigurationProperties`.
+- **Lombok:** only `@RequiredArgsConstructor`, `@Getter`, `@Slf4j`, `@Builder`. No `@Data` on entities.
+- **Transactions:** `@Transactional` on the public service method that starts the work; `readOnly = true` for reads. Never rely on a self-call for a new transaction.
+- **SQL:** bind parameters only, never string concatenation. Select only the columns you need. `EXISTS` for multi-value filters.
+- **Logging:** SLF4J with parameters (`log.info("Lock taken: aeId={}", aeId)`); request id in the MDC; never log tokens, request bodies or personal data.
+- **Database:** every change is a Flyway migration (`V<n>__…` tables, `R__…` views); `snake_case`; `timestamptz`; soft delete with `status = 'INACTIVE'`.
+- **Tests:** JUnit 5 + AssertJ + Mockito for services and mappers; Testcontainers PostgreSQL for repositories and SQL; `@WebMvcTest` for controllers. Fixed `Clock` for time logic. Every bug fix gets a test. Aim for 80% coverage in `service` and `filter`.
+- **Commits:** Conventional Commits (`feat(tagging): …`, `fix(filters): …`). Small PRs.
+
 ## Don't
 - Don't add endpoints or fields that aren't in the spec.
 - Don't edit generated code in `com.map.api` or `com.map.dto`; change the spec and regenerate.

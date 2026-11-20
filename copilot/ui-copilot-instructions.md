@@ -87,6 +87,18 @@ The **Attribute Tagging** screen of myAuditPlan:
 - Detail: 11 sections with counts; read-only when `canEdit` is false; the "being modified" banner.
 - Editing: add needs a comment, Required Dependency dialog (multi-level, at least one child), remove + undo, Update sends the complete list, lock renewal timer, warning on switching AE with unsaved changes, 409 handling.
 
+## Coding practices
+Full standards: `standards/coding-standards.md` in the docs repo. The essentials:
+- **TypeScript** `strict`; **no `any`** (use `unknown` and narrow, or the generated types).
+- **Linting:** ESLint (typescript-eslint, react-hooks, jsx-a11y) and Prettier, clean before commit.
+- **Components:** one per file, the file named after it; function components and hooks only; `type Props = { … }`; split past ~150 lines; logic in custom hooks (`useEditLock`, `useAeSearch`).
+- **Imports:** `features/*` may import `shared` and `api`; `shared` never imports `features`.
+- **State:** server data in TanStack Query (keys from one factory); UI state in `useState` / `useReducer`; filters in the URL. Don't copy server data into local state.
+- **Constants:** labels and constants (for example the filter type → label map) in one file per feature.
+- **UX:** loading, empty and error states on every async view; virtualized long lists; keyboard and `aria-label`s.
+- **Tests:** Vitest + React Testing Library, MSW for the API; Playwright for the main flows. Test names describe behaviour.
+- **Commits:** Conventional Commits (`feat(tagging): …`). Small PRs.
+
 ## Don't
 - Don't add a free-text search or call endpoints not in the spec.
 - Don't send the user id anywhere but the header.
