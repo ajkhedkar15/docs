@@ -48,7 +48,7 @@ com.ss.corp.map.api
 ├── model           DTOs: request and response records
 ├── enums           enums and the interfaces they implement (Screen, ScreenFilter, XxxFilter)
 ├── exception       custom exceptions + GlobalExceptionHandler
-├── config          @Configuration classes (CORS, Jackson, OpenAPI, later cache)
+├── config          @Configuration classes and AppProperties (app.yml binding)
 └── util            small static helpers with no Spring state
 ```
 
@@ -94,11 +94,70 @@ public class AttributeTaggingController {
 ### 4.2 Service
 - **One interface + one implementation** per area: `AEService` in `service`, `AEServiceImpl` in `service.impl`.
 - The interface carries the Javadoc (what it does, params, what it throws). The impl has `@Override` and no repeated Javadoc.
-- Annotations on the impl: `@Service`, `@RequiredArgsConstructor`, `@Slf4j` when it logs.
+- Every impl **extends `AbstractBaseService`** (see 4.2.1), which gives it `log` and `appProperties`. Annotations on the impl: `@Service`, `@RequiredArgsConstructor`. Don't add `@Slf4j` or your own logger.
+
+```java
+@Service
+@RequiredArgsConstructor
+public class FilterServiceImpl extends AbstractBaseService implements FilterService {
+
+    private final AuditableEntityRepository aeRepository;          // own dependencies: constructor injection
+
+    @Override
+    @Transactional(readOnly = true)
+    public FilterResponse getFilters(String screen) {
+        log.debug("Loading filters for screen {}", screen);       // from AbstractBaseService
+        ...
+    }
+}
+```
 - `@Transactional(readOnly = true)` on reads, `@Transactional` on writes, on the impl's public methods.
 - Business rules and validation that Bean Validation can't express live here; throw `ValidationException(field, message)` for bad input (→ 400) and `NotFoundException` for a missing record (→ 404).
 - Converts entities to DTOs before returning (see 4.5). Never returns an entity.
 - Private helper methods are fine and preferred over new classes, until a helper is needed by two services.
+
+#### 4.2.1 `AbstractBaseService`
+The one base class for services (`service` package). It holds what every service needs and nothing else: a logger and the app settings from `application.yml`.
+
+```java
+public abstract class AbstractBaseService {
+
+    /** Logger named after the concrete service class. */
+    protected final Logger log = LoggerFactory.getLogger(getClass());
+
+    protected AppProperties appProperties;
+
+    /** Setter injection so subclasses keep @RequiredArgsConstructor for their own dependencies. */
+    @Autowired
+    public final void setAppProperties(AppProperties appProperties) {
+        this.appProperties = appProperties;
+    }
+}
+```
+
+Rules:
+- Only cross-cutting things go here (logger, `AppProperties`). No business methods, no repositories, no helper logic: those go in the service or in `util`.
+- Settings are read through `appProperties`, never with `@Value` or `Environment` in a service.
+- The setter here is the **only** place setter/`@Autowired` injection is allowed.
+- In unit tests call `service.setAppProperties(testProperties)` after building the service with its mocks.
+
+`AppProperties` (in `config`) binds the `app:` block of `application.yml`:
+
+```java
+@Validated
+@ConfigurationProperties(prefix = "app")
+public record AppProperties(@NotNull Paging paging) {
+
+    public record Paging(@Min(1) int defaultPageSize, @Min(1) int maxPageSize) { }
+}
+```
+```yaml
+app:
+  paging:
+    default-page-size: 20
+    max-page-size: 100
+```
+Enable it once with `@ConfigurationPropertiesScan` on the application class. Add a nested record per area as settings appear; don't add settings nobody reads.
 
 ### 4.3 Repository
 - Interfaces only, extending `JpaRepository<Entity, UUID>`; add `JpaSpecificationExecutor<Entity>` when the entity has dynamic search.
@@ -164,7 +223,7 @@ public record SavedFilterRequest(@NotBlank String name, @NotNull FilterRequest f
 - Unexpected exceptions → 500 with a generic message; log the stack trace, never return it.
 
 ### 4.8 Logging
-- `@Slf4j`. `debug` for flow ("Loading filters for screen {}"), `info` for business events (save, lock), `warn`/`error` for problems.
+- Services use the `log` from `AbstractBaseService`; other classes that need logging use `@Slf4j`. `debug` for flow ("Loading filters for screen {}"), `info` for business events (save, lock), `warn`/`error` for problems.
 - Parameterised messages (`{}`), never string concatenation. Never log personal data beyond user names.
 
 ## 5. Naming
@@ -245,7 +304,7 @@ public enum Screen {
 Result: `FilterResponse(screen, List<FilterOption(type, options)>)` in enum order. **No cache yet** (infra pending); later add `@Cacheable(cacheNames = "filters", key = "#screen")` + `@EnableCaching`, nothing else changes.
 
 **API 2, `AEServiceImpl.search(request, page, pageSize, currentUser)`:**
-1. Validate paging (page ≥ 1, 1 ≤ pageSize ≤ 100).
+1. Validate paging (page ≥ 1, 1 ≤ pageSize ≤ `appProperties.paging().maxPageSize()`).
 2. `Screen.fromValue(request.screen())`; reject keys not in that screen's enum.
 3. Build a `Specification` in private methods of the service (no separate builder class):
    - always `aeStatus = true`
@@ -261,6 +320,7 @@ Result: `FilterResponse(screen, List<FilterOption(type, options)>)` in enum orde
 - Controller, `CurrentUser`, `GlobalExceptionHandler`, `config` classes: not written yet.
 - `recommendationCount` and `lockedBy` on `AEResponse` are placeholders (0 / null) until those features exist.
 - Replace `AEMapper` with `AEResponse.from(...)` (4.5).
+- Make `FilterServiceImpl` and `AEServiceImpl` extend `AbstractBaseService`; move `MAX_PAGE_SIZE` to `app.paging.max-page-size`.
 
 ## 8. Next APIs (from the spec), in suggested order
 
@@ -290,6 +350,7 @@ Each one = controller method + service interface method + impl + repository meth
 - [ ] Repository uses derived names where readable, `@Query` otherwise, native SQL only for PostgreSQL features
 - [ ] `@Transactional(readOnly = true)` on reads, `@Transactional` on writes
 - [ ] Bad input → `ValidationException`/Bean Validation (400); missing → 404; no `try/catch` in controllers
+- [ ] Service impl extends `AbstractBaseService`; uses its `log` and `appProperties` (no `@Value`, no own logger)
 - [ ] Constructor injection, no field `@Autowired`, no `@Data` on entities
 - [ ] No new dependency without a reason; no unused code, flags or parameters (KISS/YAGNI)
 - [ ] Tests for the new service rules
