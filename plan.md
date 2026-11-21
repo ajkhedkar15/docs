@@ -47,13 +47,17 @@ com.ss.corp.map.api
 ├── entity          JPA entities (tables)
 ├── model           DTOs: request and response records
 ├── enums           enums and the interfaces they implement (Screen, ScreenFilter, XxxFilter)
-├── exception       custom exceptions + GlobalExceptionHandler
+├── exception       MapException + subclasses, GlobalExceptionHandler
+├── logger          LoggerService interface
+│   └── impl        LoggerServiceImpl
+├── context         RequestDetails + RequestDetailsHolder (thread-local per request)
+├── filter          servlet filters only (RequestContextFilter)
 ├── config          @Configuration classes and AppProperties (app.yml binding)
 └── util            small static helpers with no Spring state
 ```
 
 Rules:
-- Packages by **layer**, as above. No package called `filter` (it clashes with Spring/servlet filters); no `common`, `misc` or `helper` dumping grounds.
+- Packages by **layer**, as above. `filter` is **only** for servlet filters (`OncePerRequestFilter`); screen dropdown code lives in `enums`. No `common`, `misc` or `helper` dumping grounds.
 - `util` classes are `final` with a private constructor and only `static` methods. If a helper needs a Spring bean, it is a service, not a util.
 
 ## 4. Layer by layer
@@ -74,7 +78,6 @@ public class AttributeTaggingController {
 
     private final FilterService filterService;
     private final AEService aeService;
-    private final CurrentUser currentUser;
 
     @GetMapping("/filters")
     public FilterResponse getFilters() {
@@ -86,7 +89,7 @@ public class AttributeTaggingController {
             @Valid @RequestBody FilterRequest request,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize) {
-        return aeService.search(request, page, pageSize, currentUser.name());
+        return aeService.search(request, page, pageSize, RequestDetailsHolder.getUserId());
     }
 }
 ```
@@ -94,7 +97,7 @@ public class AttributeTaggingController {
 ### 4.2 Service
 - **One interface + one implementation** per area: `AEService` in `service`, `AEServiceImpl` in `service.impl`.
 - The interface carries the Javadoc (what it does, params, what it throws). The impl has `@Override` and no repeated Javadoc.
-- Every impl **extends `AbstractBaseService`** (see 4.2.1), which gives it `log` and `appProperties`. Annotations on the impl: `@Service`, `@RequiredArgsConstructor`. Don't add `@Slf4j` or your own logger.
+- Every impl **extends `AbstractBaseService`** (see 4.2.1), which gives it `logger` (`LoggerService`) and `appProperties`. Annotations on the impl: `@Service`, `@RequiredArgsConstructor`. Don't add `@Slf4j` or your own logger.
 
 ```java
 @Service
@@ -106,8 +109,11 @@ public class FilterServiceImpl extends AbstractBaseService implements FilterServ
     @Override
     @Transactional(readOnly = true)
     public FilterResponse getFilters(String screen) {
-        log.debug("Loading filters for screen {}", screen);       // from AbstractBaseService
+        String operation = "FilterService -> getFilters";
+        logger.operationStarted(operation);                         // from AbstractBaseService
         ...
+        logger.operationCompleted(operation);
+        return response;
     }
 }
 ```
@@ -117,17 +123,20 @@ public class FilterServiceImpl extends AbstractBaseService implements FilterServ
 - Private helper methods are fine and preferred over new classes, until a helper is needed by two services.
 
 #### 4.2.1 `AbstractBaseService`
-The one base class for services (`service` package). It holds what every service needs and nothing else: a logger and the app settings from `application.yml`.
+The one base class for services (`service` package). It holds what every service needs and nothing else: the `LoggerService` and the app settings from `application.yml`.
 
 ```java
 public abstract class AbstractBaseService {
 
-    /** Logger named after the concrete service class. */
-    protected final Logger log = LoggerFactory.getLogger(getClass());
-
+    protected LoggerService logger;
     protected AppProperties appProperties;
 
     /** Setter injection so subclasses keep @RequiredArgsConstructor for their own dependencies. */
+    @Autowired
+    public final void setLogger(LoggerService logger) {
+        this.logger = logger;
+    }
+
     @Autowired
     public final void setAppProperties(AppProperties appProperties) {
         this.appProperties = appProperties;
@@ -136,10 +145,10 @@ public abstract class AbstractBaseService {
 ```
 
 Rules:
-- Only cross-cutting things go here (logger, `AppProperties`). No business methods, no repositories, no helper logic: those go in the service or in `util`.
+- Only cross-cutting things go here (`LoggerService`, `AppProperties`). No business methods, no repositories, no helper logic: those go in the service or in `util`.
 - Settings are read through `appProperties`, never with `@Value` or `Environment` in a service.
-- The setter here is the **only** place setter/`@Autowired` injection is allowed.
-- In unit tests call `service.setAppProperties(testProperties)` after building the service with its mocks.
+- These setters are the **only** place setter/`@Autowired` injection is allowed.
+- In unit tests call `setLogger(mock)` and `setAppProperties(testProperties)` after building the service with its mocks.
 
 `AppProperties` (in `config`) binds the `app:` block of `application.yml`:
 
@@ -218,13 +227,183 @@ public record SavedFilterRequest(@NotBlank String name, @NotNull FilterRequest f
 - Lookup from API text: `static Xxx fromValue(String)` that throws `ValidationException` (→ 400) for unknown values.
 
 ### 4.7 Exceptions and errors
-- `ValidationException(field, message)` → 400, `NotFoundException` → 404, `ForbiddenException` → 403, `ConflictException` (e.g. lock held) → 409.
-- One `@RestControllerAdvice GlobalExceptionHandler` turns them into RFC 7807 `ProblemDetail` responses as the spec defines. Bean Validation errors (`MethodArgumentNotValidException`, `ConstraintViolationException`) → 400 with the field list.
-- Unexpected exceptions → 500 with a generic message; log the stack trace, never return it.
 
-### 4.8 Logging
-- Services use the `log` from `AbstractBaseService`; other classes that need logging use `@Slf4j`. `debug` for flow ("Loading filters for screen {}"), `info` for business events (save, lock), `warn`/`error` for problems.
-- Parameterised messages (`{}`), never string concatenation. Never log personal data beyond user names.
+All our exceptions extend one unchecked base that carries the HTTP status, so the handler needs one method for all of them.
+
+```java
+@Getter
+public abstract class MapException extends RuntimeException {
+    private final HttpStatus status;
+    private final String field;                      // optional: which input was wrong
+
+    protected MapException(HttpStatus status, String field, String message) {
+        super(message);
+        this.status = status;
+        this.field = field;
+    }
+}
+
+public class ValidationException extends MapException {      // 400
+    public ValidationException(String field, String message) { super(HttpStatus.BAD_REQUEST, field, message); }
+}
+public class NotFoundException extends MapException {        // 404
+    public NotFoundException(String what, String id) { super(HttpStatus.NOT_FOUND, null, what + " not found: " + id); }
+}
+public class ForbiddenException extends MapException {       // 403, e.g. not the AE owner
+    public ForbiddenException(String message) { super(HttpStatus.FORBIDDEN, null, message); }
+}
+public class ConflictException extends MapException {        // 409, e.g. lock held by someone else
+    public ConflictException(String message) { super(HttpStatus.CONFLICT, null, message); }
+}
+```
+
+One `@RestControllerAdvice` turns every error into the RFC 7807 `ProblemDetail` the spec defines, and logs it through `LoggerService`:
+
+```java
+@RestControllerAdvice
+@RequiredArgsConstructor
+public class GlobalExceptionHandler {
+
+    private final LoggerService logger;
+
+    @ExceptionHandler(MapException.class)
+    public ProblemDetail handleMap(MapException ex, HttpServletRequest request) {
+        logger.operationFailed(request.getRequestURI(), ex.getMessage());
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getStatus(), ex.getMessage());
+        if (ex.getField() != null) {
+            pd.setProperty("errors", List.of(Map.of("field", ex.getField(), "message", ex.getMessage())));
+        }
+        return pd;
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)        // @Valid on a body
+    public ProblemDetail handleBody(MethodArgumentNotValidException ex) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Invalid request");
+        pd.setProperty("errors", ex.getBindingResult().getFieldErrors().stream()
+                .map(e -> Map.of("field", e.getField(), "message", String.valueOf(e.getDefaultMessage())))
+                .toList());
+        return pd;
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)           // @Min/@Max on params
+    public ProblemDetail handleParams(ConstraintViolationException ex) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Invalid request");
+        pd.setProperty("errors", ex.getConstraintViolations().stream()
+                .map(v -> Map.of("field", v.getPropertyPath().toString(), "message", v.getMessage()))
+                .toList());
+        return pd;
+    }
+
+    @ExceptionHandler(Exception.class)                               // anything unexpected
+    public ProblemDetail handleOther(Exception ex, HttpServletRequest request) {
+        logger.error(request.getRequestURI(), ex);                   // stack trace in the log only
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong");
+    }
+}
+```
+
+Rules:
+- Throw a `MapException` subclass for every expected failure. Never throw `RuntimeException`/`IllegalArgumentException` for user errors.
+- No `try/catch` in controllers or services just to log or re-wrap; the handler logs once. Catch only when you can actually recover.
+- Never return stack traces or SQL messages to the client.
+- New error kinds = a new subclass with its status; the handler doesn't change.
+
+### 4.8 Logging: `LoggerService` + request context
+
+We log through our own `LoggerService` (package `logger`, impl in `logger.impl`), so every line carries who made the request and its correlation id, taken from a per-request thread-local.
+
+**Request context (package `context`):**
+```java
+@Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
+public class RequestDetails {
+    private String userId;
+    private String correlationId;
+}
+
+public final class RequestDetailsHolder {
+    private static final ThreadLocal<RequestDetails> HOLDER = ThreadLocal.withInitial(RequestDetails::new);
+
+    private RequestDetailsHolder() { }
+
+    public static RequestDetails get()           { return HOLDER.get(); }
+    public static void set(RequestDetails d)     { HOLDER.set(d); }
+    public static String getUserId()             { return HOLDER.get().getUserId(); }
+    public static String getCorrelationId()      { return HOLDER.get().getCorrelationId(); }
+    public static void clear()                   { HOLDER.remove(); }
+}
+```
+
+**Filled by one servlet filter (package `filter`), and always cleared:**
+```java
+@Component
+@RequiredArgsConstructor
+public class RequestContextFilter extends OncePerRequestFilter {
+
+    private final LoggerService logger;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        String correlationId = Optional.ofNullable(request.getHeader("X-Correlation-Id"))
+                .orElse(UUID.randomUUID().toString());
+        RequestDetailsHolder.set(RequestDetails.builder()
+                .userId(request.getHeader("X-User-Id"))          // replace with SSO principal when available
+                .correlationId(correlationId)
+                .build());
+        response.setHeader("X-Correlation-Id", correlationId);
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            RequestDetailsHolder.clear();                       // threads are pooled: never skip this
+        }
+    }
+}
+```
+
+**`LoggerService`:**
+```java
+public interface LoggerService {
+    void debug(String message);
+    void info(String message);
+    void operationStarted(String operation);
+    void operationCompleted(String operation);
+    void operationFailed(String operation, String reason);
+    void error(String operation, Throwable ex);
+}
+
+@Slf4j
+@Service
+public class LoggerServiceImpl implements LoggerService {
+
+    @Override public void debug(String message) { log.debug("[{}] [{}] {}", user(), cid(), message); }
+    @Override public void info(String message)  { log.info("[{}] [{}] {}", user(), cid(), message); }
+
+    @Override public void operationStarted(String operation) {
+        log.info("[{}] [{}] {} : started", user(), cid(), operation);
+    }
+    @Override public void operationCompleted(String operation) {
+        log.info("[{}] [{}] {} : completed", user(), cid(), operation);
+    }
+    @Override public void operationFailed(String operation, String reason) {
+        log.warn("[{}] [{}] {} : failed : {}", user(), cid(), operation, reason);
+    }
+    @Override public void error(String operation, Throwable ex) {
+        log.error("[{}] [{}] {} : error", user(), cid(), operation, ex);
+    }
+
+    private String user() { return RequestDetailsHolder.getUserId(); }
+    private String cid()  { return RequestDetailsHolder.getCorrelationId(); }
+}
+```
+
+Rules:
+- Services use `logger` from `AbstractBaseService`; controllers, filters and the exception handler inject `LoggerService`. Only `LoggerServiceImpl` uses `@Slf4j` directly.
+- Operation names: `"<Class> -> <method>"`, e.g. `"AEService -> search"`. Started/completed around each public service method; failures are logged by `GlobalExceptionHandler`, not by the service.
+- Parameterised SLF4J messages (`{}`), never `String.format` or concatenation for log lines.
+- `operationFailed` is `warn` (expected 4xx), `error` is for unexpected failures with the stack trace.
+- Read the current user from `RequestDetailsHolder`, never from the request body.
+- Never log personal data beyond the user id. Never log request bodies at `info`.
+- `@Async` or new threads don't inherit the thread-local: pass `RequestDetails` explicitly if you ever need it there.
 
 ## 5. Naming
 
@@ -237,6 +416,7 @@ public record SavedFilterRequest(@NotBlank String name, @NotNull FilterRequest f
 | DTO | `<Thing>Request` / `<Thing>Response` | `FilterRequest`, `AEResponse` |
 | Screen filter enum | `<Screen>Filter` | `AttributeTaggingFilter` |
 | Methods | verb first | `getFilters`, `search`, `findDistinctAeNames` |
+| Exception | `<Kind>Exception extends MapException` | `ConflictException` |
 | Constants | `UPPER_SNAKE` | `MAX_PAGE_SIZE` |
 
 "AE" stays upper case in class names (`AEService`, `AEResponse`), lower camel in fields (`aeId`).
@@ -248,7 +428,7 @@ public record SavedFilterRequest(@NotBlank String name, @NotNull FilterRequest f
 - **Sorting** must be stable: always add the id as a tiebreaker (`Sort.by("aeName", "aeId")`).
 - **Filters:** `{ "screen": "...", "filters": { "<key>": ["value", ...] } }`. OR within a key, AND across keys. `{}` = everything. Unknown key → 400.
 - No free-text search on the server.
-- Current user comes from the `CurrentUser` bean (header/SSO), never from the request body.
+- Current user comes from `RequestDetailsHolder` (filled by `RequestContextFilter` from the header/SSO), never from the request body. Every response carries `X-Correlation-Id`.
 
 ## 7. What is built so far (Attribute Tagging, APIs 1 and 2)
 
@@ -317,7 +497,7 @@ Result: `FilterResponse(screen, List<FilterOption(type, options)>)` in enum orde
 ### 7.3 Open items
 
 - Spec: add `screen` to `FilterRequest`/`FilterResponse` in `api/openapi.yml`, and settle the screen name (`attribute-tagging` in paths vs `attributeTagging` in `Screen`).
-- Controller, `CurrentUser`, `GlobalExceptionHandler`, `config` classes: not written yet.
+- Controller, `logger`, `context`, `RequestContextFilter`, `MapException` family, `GlobalExceptionHandler`, `config` classes: not written yet. `ValidationException` in `code/` must be changed to extend `MapException`.
 - `recommendationCount` and `lockedBy` on `AEResponse` are placeholders (0 / null) until those features exist.
 - Replace `AEMapper` with `AEResponse.from(...)` (4.5).
 - Make `FilterServiceImpl` and `AEServiceImpl` extend `AbstractBaseService`; move `MAX_PAGE_SIZE` to `app.paging.max-page-size`.
@@ -350,7 +530,8 @@ Each one = controller method + service interface method + impl + repository meth
 - [ ] Repository uses derived names where readable, `@Query` otherwise, native SQL only for PostgreSQL features
 - [ ] `@Transactional(readOnly = true)` on reads, `@Transactional` on writes
 - [ ] Bad input → `ValidationException`/Bean Validation (400); missing → 404; no `try/catch` in controllers
-- [ ] Service impl extends `AbstractBaseService`; uses its `log` and `appProperties` (no `@Value`, no own logger)
+- [ ] Service impl extends `AbstractBaseService`; uses its `logger` and `appProperties` (no `@Value`, no `@Slf4j`)
+- [ ] Failures throw a `MapException` subclass; no logging `try/catch` in controllers/services
 - [ ] Constructor injection, no field `@Autowired`, no `@Data` on entities
 - [ ] No new dependency without a reason; no unused code, flags or parameters (KISS/YAGNI)
 - [ ] Tests for the new service rules
