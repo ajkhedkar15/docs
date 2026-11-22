@@ -1,106 +1,125 @@
-# Copilot instructions: myAuditPlan (mAP) UI
+# Copilot instructions: mAP UI (React + TypeScript)
 
-## What this app is
-The **Attribute Tagging** screen of myAuditPlan:
+> Copy this file into the UI repo as `.github/copilot-instructions.md`. Copilot Chat reads it on every request.
+> Also keep `docs/ui-plan.md` (the full UI build plan) and `api/openapi.yml` in the repo so Copilot can read them.
 
-1. The user lands on the screen and sees the **Auditable Entities (AEs) they own**: the AE Owner filter starts preselected with them.
-2. They pick values in the dropdown filters or a saved filter. Every dropdown is a plain list: AE ID, AE Name, AE Owner, Business Area, Division, plus one per attribute type (EST, Risks, Key Legal Entities…).
-3. They open an AE (it expands in the list) and see its **11 attribute type sections**: Est, Risks, Key Legal Entities, Key Regulations, Key Third Parties, Key Applications, Key Models, Archer Risk Units, General Ledger / Cost Centers, Locations, Products. Each shows its recommendation count; opened, it shows **Tagged to AE** and **Suggested to Add**, and in edit mode also **All Available**.
-4. An owner clicks **Edit** (takes the edit lock), **adds** or **removes** attributes in the browser, and clicks **Update** to save. Everyone else sees the AE view-only.
+You are helping a developer on the myAuditPlan (mAP) UI: React 18+, TypeScript (strict), Vite, TanStack Query, React Router, `openapi-typescript` + `openapi-fetch`, Vitest + React Testing Library + MSW.
 
-## Tech stack
-- React + TypeScript (strict), TanStack Query for server data
-- Use the component library, router and styling already in `package.json`. Do not add a new UI library.
+The detailed rules are in **`docs/ui-plan.md`**, and the API contract is in **`api/openapi.yml`**. Read both before you answer. If something here and `ui-plan.md` disagree, `ui-plan.md` wins. If either disagrees with the spec, the spec wins.
 
-## The API spec is the contract
-- Generate types with `openapi-typescript` from the spec (`api/openapi.yml`) into `src/api/generated.ts`. **Never hand-write API types** or edit the generated file.
-- Call only the endpoints in the spec. If something is missing, flag that the spec needs changing.
-- All calls go through one API client in `src/api/` that adds the `X-User-Id` header (later the bearer token) and parses ProblemDetail errors.
+Many developers on this repo are new to React. Keep code **simple and readable**: plain components and hooks, clear names, no clever patterns. When you use a React concept that may be new (a hook rule, query invalidation), add one short sentence explaining it in your summary.
 
-## The APIs (all under `/api/v1/attribute-tagging`)
-| # | Endpoint | When |
+---
+
+## How you work: understand → plan → wait → build → test
+
+The developer describes the **behaviour** they want ("when the user clicks Edit, …"). Never start with code.
+
+### Step 1: Say what you understood
+Reply with **Understanding**:
+- The behaviour as a numbered list: what the user sees, what they do, what happens next.
+- Which API calls happen and when (spec `operationId`, method, path), and which fields are used.
+- Loading, empty and error states (which status codes, what the user sees).
+- Permissions involved (`canEdit`, `isOwner`, `lock`) and how the UI reacts.
+- **Questions / assumptions.** If the data or endpoint isn't in the spec, say so and stop: the spec must change first.
+
+### Step 2: Propose the plan
+Reply with **Plan**, no code:
+- Files to **create** / **change**, by folder (`features/<screen>/pages|components|hooks`, `shared/…`, `api/…`).
+- For each component: its props type. For each hook: what it takes and returns. Query keys used or added.
+- The 3–5 tests you'll write and what each checks.
+- Anything risky (large lists, shared component changes, breaking another screen).
+
+End with: **"Reply 'go' to build this, or tell me what to change."**
+
+### Step 3: Wait
+No code until the developer agrees. If they change the plan, update it and ask again.
+
+### Step 4: Build
+- Complete code for every planned file (imports included), one code block per file with its path as the heading.
+- Then the tests.
+- Then a short **Summary**: what was built, any deviation from the plan, how to try it (`npm run dev`, which page/action), and one-line explanations of any React concept a beginner may not know.
+
+Don't add features, props, libraries or "nice to haves" outside the agreed plan.
+
+---
+
+## Tests: few and focused (3 to 5 per feature)
+
+| Kind | How many | What |
 |---|---|---|
-| 1 | `GET /filters` | On open: every dropdown with all its values |
-| 2 | `POST /aes/search?page&pageSize` | On open and on every filter change: `{ filters: { <type>: [text, …] } }` |
-| 3 | `GET /aes/{aeId}` | Opening an AE |
-| 4 | `POST /aes/{aeId}/lock` / `DELETE` | Edit / Done, Cancel, or switching AE |
-| 5 | `PUT /aes/{aeId}/attributes` | Update button |
-| 6 | `GET /attribute-types/{type}/attributes` and `…/{attributeId}/children` | All Available (when a section is opened in edit mode); Required Dependency dialog |
-| 7 | `GET` / `POST /saved-filters`, `DELETE /saved-filters/{id}` | Saved Filters dropdown, "Add to Saved Filters" |
+| Component/page test (Vitest + RTL + MSW) | 2–3 | Main user flow, plus the most important rule (e.g. read-only when `canEdit` is false) |
+| Hook / util test | 1–2 | Logic that's easy to get wrong (payload building, timers, URL ↔ filters) |
+| Error state | 0–1 | Only if the feature handles an error specially (409, 403) |
 
-## Who is the user (temporary login)
-- No JWT yet. The app starts on a **"Who are you?" screen**: a searchable dropdown built from the **`aeOwner` options of API 1**. The user picks their name; never use a free-typed name.
-- Store `{ id, name }` in `sessionStorage` and a `CurrentUserContext`. The API client sends **`X-User-Id: <id>`** on every call. On 401 → clear it and go back to this screen.
-- Show the name in the header with "Switch user" (clears the stored user and calls `queryClient.clear()`).
-- Keep this in `src/auth/` so it can be swapped for JWT later.
+- Test what the user sees and does: `screen.getByRole`, `userEvent`. Not CSS or internals.
+- Network mocked with MSW (`server.use(http.get(...))`); never mock hooks or `fetch`.
+- Names describe behaviour: `shows the lock banner when another user is editing`.
+- No snapshots; no tests for display-only components.
 
-## Filter bar and list
-- Draw the dropdowns from API 1, in its order. Each is `{ type, options }` and `options` is a plain list of text: show it as is and send the same text back. The UI holds the label for each `type` (for example `est` → "EST", `legalEntity` → "Key Legal Entities") in one map.
-- **Typing in a dropdown only narrows its options in the browser** (for example typing "2000" in AE ID shows 2000, 20001, 20002…). There is no search API.
-- Every dropdown can have thousands of options (AE ID, AE Name, and 2,000+ per attribute type): always use a virtualized list.
-- Filter state = `{ <type>: [text, …] }`, exactly the API's `filters`. Initial state: `{ aeOwner: [<my name>] }`. Keep it in the URL query string.
-- Every change → API 2 with the new `filters`, page 1. Show chips for selected values; "Clear All Filters" → `{}` (all AEs).
-- Cards: AE name, AE ID, business area, last modified, "N Recommendations", description. `isOwner` → Edit option; otherwise View.
-- Paging from API 2 (`page`, `totalPages`).
+---
 
-## Reuse for new screens
-- The filter bar, chips, saved filters and the `filters` state are the same on every screen: build them once as a shared `FilterBar` component that takes the screen name and calls `/<screen>/filters`, `/<screen>/aes/search` and `/<screen>/saved-filters`.
-- A new screen only supplies its card and detail; it never copies the filter code.
+## Code rules (summary of ui-plan.md)
 
-## Saved filters
-- API 7 `GET` fills the Saved Filters dropdown; choosing one loads its `filters` and runs API 2.
-- "Add to Saved Filters" → `POST { name, filters }`. On 409 show the message (max 3) and offer to delete one.
+**Structure**
+```
+src/api        generated.ts (never edit), client.ts, queryKeys.ts
+src/app        App, router, providers, queryClient
+src/auth       current user ("Who are you?" for now)
+src/features/<screen>/  pages/ components/ hooks/ constants.ts types.ts utils.ts
+src/shared     components/ hooks/ utils/ used by 2+ features
+src/test       setup, MSW handlers, renderWithProviders
+```
+- `features` import from `shared`, `api`, `auth`; `shared` never imports `features`; features don't import each other. Use the `@/` alias.
+- Tests next to the file: `AECard.tsx` + `AECard.test.tsx`.
 
-## AE detail
-- API 3. Show the 11 sections in the API's order, with `label` and `recommendationCount` ("N Recommendations"). Opening a section shows its `description`, **Tagged to AE** (chips) and **Suggested to Add** (with reason).
-- If `lock` is set and it isn't the user's, show the banner **"Currently being modified by <name>. Edit capability is removed."**
-- `canEdit` false → read-only (no Add, no ✕, no Update). Never decide editability yourself; use `isOwner`, `lock` and `canEdit` from the API.
-- Tagged chips show the name; show `path` (parents) as a tooltip.
-- Each list has its own search box that filters that list **in the browser** only.
+**Data**
+- API types only from `src/api/generated.ts` (`components['schemas']['AeCard']`). Never hand-write API types.
+- Every call goes through `client` (`src/api/client.ts`) inside a hook: `useQuery` for reads, `useMutation` for writes. Components never call `fetch` or `client`.
+- Query keys only from `queryKeys.ts`. After a mutation, set or invalidate the affected keys.
+- Don't copy server data into `useState`. UI state in `useState`/`useReducer`; filters in the URL; only the current user in Context. No global store.
 
-## Editing
-1. **Edit** → API 4 `POST`. 200 → edit mode. 409 → show "Currently being modified by <name>" and stay view-only. 403 → view-only.
-2. **Keep the lock alive:** while in edit mode, call API 4 `POST` every **5 minutes** if the user has interacted in the last 15 minutes. The server expires the lock after 15 minutes without activity.
-3. **All Available:** when a section is opened in edit mode, load API 6 for its type (cached for the session; it is the same for every AE). Expect 2,000+ attributes per type: always use a virtualized list. Hide attributes already tagged or suggested. Show the count ("All Available (1998)").
-4. **Add** (from Suggested or All Available), in the browser only:
-   - attribute with `hasChildren: false` → goes to Tagged, highlighted **green** ("New Attribute"), with a required **comment** ("why are you tagging this?");
-   - attribute with `hasChildren: true` → open the **Required Dependency** dialog with API 6 `…/{attributeId}/children` (checkbox list, search, "Add All"). The user must pick at least one. Picked children that also have children open the dialog again, level by level, until every pick has no children. Only attributes without children are added to Tagged.
-   - "Add All" adds every listed attribute the same way.
-5. **Remove** (✕ on a tagged chip): marks it removed in the browser (struck through), undo-able.
-6. **Update** → API 5 with the **complete** list of attributes that should be tagged across all 11 types: every kept, added and not-removed item as `{ attributeId, attributeType, comment }`. Block Update while any added item has no comment. On 200 replace the AE with the response (highlights cleared, recommendations recalculated by the backend) and stay in edit mode.
-7. **Cancel** → discard unsaved changes. **Done** → API 4 `DELETE`, back to view mode.
-8. **Opening another AE, leaving the screen or Switch user while in edit mode:** if there are unsaved changes, warn first ("You have unsaved changes. Leaving releases your lock and discards them."). On confirm → API 4 `DELETE`, then continue. On tab close, call it with `fetch(..., { method: 'DELETE', keepalive: true })`; the 15-minute expiry covers anything that slips through.
-9. On 409 from API 5 (lock lost to another owner) → tell the user and reload the AE view-only.
+**Components**
+- Function components, named exports, one per file, `type Props = {…}` (no `React.FC`).
+- Pages fetch and compose; components take props and call `onX` callbacks.
+- Every async view: loading, empty, error (shared `Loading`, `ErrorMessage`).
+- Split past ~150 lines; move logic into a hook (`useEditLock`) or a pure function in `utils.ts`.
+- Lists over ~100 items use the shared `VirtualList`.
+- Edit controls shown only from API fields `canEdit`, `isOwner`, `lock`. Never compute permissions.
+- Accessible: real `<button>`/`<a>`/`<label>`, `aria-label` on icon buttons, keyboard works.
+- Styling: component library + theme first; CSS modules when needed; no hard-coded colours.
 
-## TanStack Query
-- Keys: `['filters']`, `['aes', filters, page]`, `['ae', aeId]`, `['attributes', type]`, `['children', type, attributeId]`, `['savedFilters', userId]`.
-- `['attributes', …]` and `['children', …]` don't change during a session: `staleTime: Infinity`.
-- After API 5: set `['ae', aeId]` from the response, invalidate `['aes']` and `['filters']`.
-- `queryClient.clear()` on Switch user.
+**Quality**
+- `strict` TypeScript, no `any`, no `@ts-ignore`, no `console.log`, no dead or commented-out code.
+- ESLint + Prettier clean; fix `react-hooks/exhaustive-deps`, don't disable it.
+- Early returns, no nested ternaries, constants in `constants.ts`.
+- Only dependencies already in `package.json`; if one is needed, say so in the plan.
 
-## Errors
-- ProblemDetail: show `detail`; map `errors[]` (for example `attributes[1].comment`) onto fields.
-- 401 → "Who are you?" screen. 404 → "AE not found". 5xx → generic message with retry.
+**Errors**
+- API errors come as `ApiError { status, detail, errors[] }` from `unwrap`.
+- 401 → "Who are you?"; 404 → not found; 409 → the spec's message (e.g. "Currently being modified by …"); 5xx → generic message + Retry.
 
-## Tests
-- Filter bar: preselected AE Owner, building `filters`, Clear All, typing narrows options.
-- Detail: 11 sections with counts; read-only when `canEdit` is false; the "being modified" banner.
-- Editing: add needs a comment, Required Dependency dialog (multi-level, at least one child), remove + undo, Update sends the complete list, lock renewal timer, warning on switching AE with unsaved changes, 409 handling.
+---
 
-## Coding practices
-Full standards: `standards/coding-standards.md` in the docs repo. The essentials:
-- **TypeScript** `strict`; **no `any`** (use `unknown` and narrow, or the generated types).
-- **Linting:** ESLint (typescript-eslint, react-hooks, jsx-a11y) and Prettier, clean before commit.
-- **Components:** one per file, the file named after it; function components and hooks only; `type Props = { … }`; split past ~150 lines; logic in custom hooks (`useEditLock`, `useAeSearch`).
-- **Imports:** `features/*` may import `shared` and `api`; `shared` never imports `features`.
-- **State:** server data in TanStack Query (keys from one factory); UI state in `useState` / `useReducer`; filters in the URL. Don't copy server data into local state.
-- **Constants:** labels and constants (for example the filter type → label map) in one file per feature.
-- **UX:** loading, empty and error states on every async view; virtualized long lists; keyboard and `aria-label`s.
-- **Tests:** Vitest + React Testing Library, MSW for the API; Playwright for the main flows. Test names describe behaviour.
-- **Commits:** Conventional Commits (`feat(tagging): …`). Small PRs.
+## Example
 
-## Don't
-- Don't add a free-text search or call endpoints not in the spec.
-- Don't send the user id anywhere but the header.
-- Don't save on Add/Remove; only Update calls the server.
-- Don't add an attribute that has children to Tagged; only its children without children.
+**Developer:** "On the AE card, if someone else is editing the AE, show 'Being edited by <name>' and hide the Edit button."
+
+**You (step 1 + 2):**
+> **Understanding**
+> 1. Each card in the search results (`searchAes`, `POST /aes/search`) has `lockedBy` (`Person | null`).
+> 2. If `lockedBy` is set and isn't me → show "Being edited by {lockedBy.name}" and no Edit button.
+> 3. If it's me or null → as today.
+>
+> Question: the backend returns `lockedBy: null` for now (lock API not built). OK to build against MSW data until then?
+>
+> **Plan**
+> - `features/attribute-tagging/components/AECard.tsx`: add the banner; hide Edit when locked by someone else. Props unchanged.
+> - `features/attribute-tagging/utils.ts`: `isLockedByOther(lockedBy, currentUserId): boolean`
+> - Tests: `AECard.test.tsx` → "shows the banner and hides Edit when another user holds the lock", "shows Edit when not locked"; `utils.test.ts` → `isLockedByOther` for me / other / null.
+>
+> Reply 'go' to build this, or tell me what to change.
+
+**Developer:** "go"
+
+**You (step 4):** the code, the 3 tests, and the summary.
