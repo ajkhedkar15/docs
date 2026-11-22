@@ -2,12 +2,110 @@
 
 The single plan for building the mAP backend (`aur_map_api_svc`). Give this file to GitHub Copilot (Chat or agent mode) together with the API spec, and it should generate code that looks like the code we already have.
 
+We work **spec-first** (Spec-Driven Development, section 0): the OpenAPI spec is written and agreed before any code, and the code is built from it.
+
 > **How to use it with Copilot**
-> 1. Open `plan.md` and `api/openapi.yml` in the editor (or add both with `#file`).
-> 2. Ask for one slice at a time, for example: *"Following plan.md, implement `GET /attribute-tagging/aes/{aeId}` from openapi.yml: controller method, service interface + impl, repository methods, DTO with `from(...)`."*
-> 3. Review against the **Checklist** at the end before you commit.
+> 1. Make sure the endpoint is already in `api/openapi.yml` and approved (section 0). No spec, no code.
+> 2. Open `plan.md` and `api/openapi.yml` in the editor (or add both with `#file`).
+> 3. Ask for one slice at a time with the prompt in 0.6.
+> 4. Review against the **Definition of Done** (section 15) before you raise the PR.
 >
 > If this file and older docs disagree (for example `copilot/backend-copilot-instructions.md`), **this file wins**. If this file and `api/openapi.yml` disagree on an endpoint or a field, **the spec wins**: fix the spec first, in the same PR.
+
+---
+
+## 0. Spec-Driven Development (SDD)
+
+**The rule: the API spec comes first.** Every new endpoint, field, parameter, status code or error is written in `api/openapi.yml`, reviewed and merged (or at least approved) **before** backend or UI code is written. Code that does something the spec doesn't describe is a bug, even if it works.
+
+Why: UI and backend can work in parallel from day one, Copilot gets an exact target instead of guessing, reviews happen on a 30-line YAML diff instead of 600 lines of Java, and the contract can't drift silently.
+
+### 0.1 Workflow for every story
+
+| Step | Who | What | Done when |
+|---|---|---|---|
+| 1. Design | Backend dev (+ UI dev) | Change `api/openapi.yml`: paths, params, schemas, **examples**, every error response | Spec PR opened |
+| 2. Lint | CI | Redocly lint (`.github/workflows/api-spec.yml`) | Green check |
+| 3. Review | 1 backend + 1 UI reviewer | Names, shapes, status codes, breaking or not (0.4) | Both approve, PR merged |
+| 4. Mock | UI dev | Run a mock server from the spec, build the screen against it: `npx @stoplight/prism-cli mock api/openapi.yml` | UI unblocked |
+| 5. Build | Backend dev | Implement from the spec with Copilot + this plan (0.6) | Code compiles, tests pass |
+| 6. Verify | CI | Contract tests check real responses against the spec (0.5) | Green check |
+| 7. Release | Backend dev | Bump `info.version` in the spec, note changes in the PR | Merged to `Develop` |
+
+If you find during step 5 that the spec is wrong or incomplete: **stop, fix the spec first** (small spec PR, same reviewers), then continue. Never "fix it in code now and update the spec later".
+
+### 0.2 What every operation in the spec must have
+- `operationId` (verb + noun, e.g. `searchAEs`): it becomes the controller method name.
+- `tags`: one tag per screen (`Attribute Tagging`).
+- `summary` (one line) and `description` (rules: sorting, paging, filter semantics, who may call it).
+- Every parameter with type, `required`, constraints (`minimum`, `maximum`, `maxLength`, `enum`, `pattern`) and an example.
+- Request and response bodies as named `components/schemas` (no inline anonymous objects), with `required` fields and **examples**.
+- Every response the endpoint can return: `200/201/204` and each of `400`, `403`, `404`, `409`, `500` that applies, all errors as `ProblemDetail`.
+- Pagination, sort order and empty-result behaviour written down in the description.
+
+### 0.3 Spec style
+- JSON fields in `camelCase`; paths in `kebab-case` plural nouns (`/saved-filters`, `/aes/{aeId}`).
+- Ids are strings in the API.
+- Dates/times: `string` + `format: date-time` (UTC, ISO-8601).
+- Reuse shared schemas (`PagedResponse`, `ProblemDetail`, `Person`) instead of copying them.
+- Enums listed in the spec; the Java enum must have exactly the same values.
+
+### 0.4 Changing an existing endpoint
+| Change | Breaking? | What to do |
+|---|---|---|
+| Add an optional field to a response | No | Spec PR, bump minor `info.version` |
+| Add an optional request field / query param | No | Same |
+| Add a new endpoint | No | Same |
+| Rename/remove a field, change a type, make a field required, change a status code or URL | **Yes** | Agree with the UI team first; ship UI and API together, or add a new version (`/api/v2/...`) and deprecate the old one (`deprecated: true`) |
+
+### 0.5 Keeping code and spec in step
+- **Spec is the source.** The Swagger annotations on controllers (4.1) describe the same thing for Swagger UI; if they ever disagree, the spec wins and the annotations get fixed.
+- **Copy of the spec in the service:** keep `src/test/resources/openapi.yml` in `aur_map_api_svc`, updated in the same PR as the code change.
+- **Contract tests:** every controller test validates the real request/response against that file, so a field renamed in code but not in the spec fails the build:
+
+```xml
+<dependency>
+    <groupId>com.atlassian.oai</groupId>
+    <artifactId>swagger-request-validator-mockmvc</artifactId>
+    <version>2.44.1</version>
+    <scope>test</scope>
+</dependency>
+```
+```java
+@WebMvcTest(AttributeTaggingController.class)
+class AttributeTaggingControllerTest {
+
+    private static final OpenApiValidationMatchers SPEC =
+            OpenApiValidationMatchers.openApi().isValid("openapi.yml");
+
+    @Autowired MockMvc mvc;
+    @MockBean FilterService filterService;
+    @MockBean AEService aeService;
+
+    @Test
+    void getFilters_validScreen_matchesSpec() throws Exception {
+        when(filterService.getFilters(any())).thenReturn(new FilterResponse("attributeTagging", List.of()));
+
+        mvc.perform(get("/api/v1/attribute-tagging/filters"))
+           .andExpect(status().isOk())
+           .andExpect(SPEC);                       // fails if the JSON doesn't match openapi.yml
+    }
+}
+```
+
+### 0.6 Copilot prompt for a new endpoint
+Paste and fill in:
+```
+#file:plan.md #file:openapi.yml
+Implement operation <operationId> (<METHOD> <path>) exactly as defined in openapi.yml, following plan.md:
+- controller method in <Controller> (thin, Swagger annotations matching the spec, logger started/completed)
+- service interface method + Impl (extends AbstractBaseService, logger started/completed/debug)
+- repository methods (derived names first, @Query only if needed)
+- request/response records with from(...)/toEntity() matching the spec schemas field by field
+- MapException subclasses for every error response listed in the spec
+- unit tests for the service rules and a contract test for the controller (section 0.5)
+Do not add fields, parameters or endpoints that are not in the spec.
+```
 
 ---
 
@@ -40,7 +138,7 @@ Use only libraries already in `pom.xml`. Do not add a dependency without saying 
 
 ```
 com.ss.corp.map.api
-├── controller      REST controllers, one per screen / resource
+├── web             REST controllers, one per screen / resource
 ├── service         service interfaces
 │   └── impl        their implementations (XxxServiceImpl)
 ├── repository      Spring Data JPA repository interfaces
@@ -52,47 +150,71 @@ com.ss.corp.map.api
 │   └── impl        LoggerServiceImpl
 ├── context         RequestDetails + RequestDetailsHolder (thread-local per request)
 ├── filter          servlet filters only (RequestContextFilter)
+├── external        clients for other systems (REST/SOAP calls out); one interface + impl per system
 ├── config          @Configuration classes and AppProperties (app.yml binding)
 └── util            small static helpers with no Spring state
 ```
 
 Rules:
-- Packages by **layer**, as above. `filter` is **only** for servlet filters (`OncePerRequestFilter`); screen dropdown code lives in `enums`. No `common`, `misc` or `helper` dumping grounds.
+- Packages by **layer**, as above (controllers live in `web`). `filter` is **only** for servlet filters (`OncePerRequestFilter`); screen dropdown code lives in `enums`. No `common`, `misc` or `helper` dumping grounds.
 - `util` classes are `final` with a private constructor and only `static` methods. If a helper needs a Spring bean, it is a service, not a util.
 
 ## 4. Layer by layer
 
 ### 4.1 Controller
-- One controller per screen/resource, e.g. `AttributeTaggingController`, mapped to `/api/v1/<screen>`.
+- One controller per screen/resource in package `web`, e.g. `AttributeTaggingController`, mapped to `/api/v1/<screen>`.
+- Method name = the spec's `operationId`; Swagger annotations (`@Tag`, `@Operation`, `@ApiResponses`, `@Parameter`) copy the spec's summary, descriptions and responses.
+- Logs `operationStarted` / `operationCompleted` like services do (4.8), using an injected `LoggerService`.
 - **Thin.** Each method: take the request, call **one** service method, return the DTO. No business logic, no repository calls, no `try/catch` (the `GlobalExceptionHandler` does errors).
 - Method names, paths, parameters and response types follow `api/openapi.yml` exactly.
 - Validate input with Bean Validation (`@Valid`, `@NotBlank`, `@Min`, `@Max`) and `@Validated` on the class.
 - Return the DTO directly (Spring sends 200). Use `ResponseEntity` only when the status or headers change (201, 204).
 
 ```java
-@RestController
-@RequestMapping("/api/v1/attribute-tagging")
-@RequiredArgsConstructor
 @Validated
+@RestController
+@RequiredArgsConstructor
+@RequestMapping(value = "/api/v1/attribute-tagging", produces = MediaType.APPLICATION_JSON_VALUE)
+@Tag(name = "Attribute Tagging", description = "Find Auditable Entities and tag attributes to them")
 public class AttributeTaggingController {
 
     private final FilterService filterService;
     private final AEService aeService;
+    private final LoggerService logger;
 
+    @Operation(summary = "Get filter dropdowns")
+    @ApiResponse(responseCode = "200", description = "Dropdowns and their values")
     @GetMapping("/filters")
     public FilterResponse getFilters() {
-        return filterService.getFilters(Screen.ATTRIBUTE_TAGGING.getValue());
+        final String operation = "AttributeTaggingController -> getFilters";
+        logger.operationStarted(operation);
+        FilterResponse response = filterService.getFilters(Screen.ATTRIBUTE_TAGGING.getValue());
+        logger.operationCompleted(operation);
+        return response;
     }
 
-    @PostMapping("/aes/search")
+    @Operation(summary = "Search Auditable Entities")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "One page of AE cards"),
+            @ApiResponse(responseCode = "400", description = "Unknown filter or bad paging",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @PostMapping(value = "/aes/search", consumes = MediaType.APPLICATION_JSON_VALUE)
     public PagedResponse<AEResponse> searchAEs(
             @Valid @RequestBody FilterRequest request,
-            @RequestParam(defaultValue = "1") @Min(1) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize) {
-        return aeService.search(request, page, pageSize, RequestDetailsHolder.getUserId());
+            @Parameter(description = "Page number, starts at 1") @RequestParam(defaultValue = "1") @Min(1) int page,
+            @Parameter(description = "Items per page, 1 to 100") @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize,
+            @RequestHeader(value = "X-User-Id", required = false) String userId) {   // → RequestDetailsHolder later
+        final String operation = "AttributeTaggingController -> searchAEs";
+        logger.operationStarted(operation);
+        PagedResponse<AEResponse> response = aeService.search(request, page, pageSize, userId);
+        logger.operationCompleted(operation);
+        return response;
     }
 }
 ```
+
+The full version with every Swagger annotation is `AttributeTaggingController` in `code/` (PR #12).
 
 ### 4.2 Service
 - **One interface + one implementation** per area: `AEService` in `service`, `AEServiceImpl` in `service.impl`.
@@ -178,7 +300,7 @@ Enable it once with `@ConfigurationPropertiesScan` on the application class. Add
      `@Query("select distinct a.aeName from AuditableEntity a where a.aeStatus = true order by a.aeName")`
   3. **`@Query(nativeQuery = true)`** only for PostgreSQL-specific SQL (arrays, `unnest`):
      `select distinct o from aur_map_app.auditable_entity, unnest(ae_owner) o where ae_status order by o`
-  4. **`Specification`** for searches where the user picks any combination of filters (built inside the service, see 7.2).
+  4. **`Specification`** for searches where the user picks any combination of filters (built inside the service, see 11.2).
 - No business logic in repositories, no default methods with logic.
 - Return `List`, `Optional` or `Page`. Never return `null`.
 
@@ -308,65 +430,26 @@ Rules:
 - Never return stack traces or SQL messages to the client.
 - New error kinds = a new subclass with its status; the handler doesn't change.
 
-### 4.8 Logging: `LoggerService` + request context
+### 4.8 Logging: `LoggerService`
 
-We log through our own `LoggerService` (package `logger`, impl in `logger.impl`), so every line carries who made the request and its correlation id, taken from a per-request thread-local.
+All logging goes through our own `LoggerService` (package `logger`, impl in `logger.impl`). Only `LoggerServiceImpl` uses SLF4J (`@Slf4j`) directly.
 
-**Request context (package `context`):**
-```java
-@Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
-public class RequestDetails {
-    private String userId;
-    private String correlationId;
-}
+**Levels:**
+| Method | Level | Use for |
+|---|---|---|
+| `operationStarted(op)` | INFO | First line of every public controller and service method |
+| `operationCompleted(op)` | INFO | Last line before every `return` |
+| `info(op, msg)` | INFO | Important business events only (saved, lock taken/released) |
+| `debug(op, msg)` | DEBUG | Everything else: parameters, counts, keys, branches taken |
+| `operationFailed(op, reason)` | ERROR | Expected failures (4xx), no stack trace; called by `GlobalExceptionHandler` |
+| `error(op, ex)` | ERROR | Unexpected exceptions (5xx) with stack trace; called by `GlobalExceptionHandler` |
 
-public final class RequestDetailsHolder {
-    private static final ThreadLocal<RequestDetails> HOLDER = ThreadLocal.withInitial(RequestDetails::new);
-
-    private RequestDetailsHolder() { }
-
-    public static RequestDetails get()           { return HOLDER.get(); }
-    public static void set(RequestDetails d)     { HOLDER.set(d); }
-    public static String getUserId()             { return HOLDER.get().getUserId(); }
-    public static String getCorrelationId()      { return HOLDER.get().getCorrelationId(); }
-    public static void clear()                   { HOLDER.remove(); }
-}
-```
-
-**Filled by one servlet filter (package `filter`), and always cleared:**
-```java
-@Component
-@RequiredArgsConstructor
-public class RequestContextFilter extends OncePerRequestFilter {
-
-    private final LoggerService logger;
-
-    @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
-            throws ServletException, IOException {
-        String correlationId = Optional.ofNullable(request.getHeader("X-Correlation-Id"))
-                .orElse(UUID.randomUUID().toString());
-        RequestDetailsHolder.set(RequestDetails.builder()
-                .userId(request.getHeader("X-User-Id"))          // replace with SSO principal when available
-                .correlationId(correlationId)
-                .build());
-        response.setHeader("X-Correlation-Id", correlationId);
-        try {
-            chain.doFilter(request, response);
-        } finally {
-            RequestDetailsHolder.clear();                       // threads are pooled: never skip this
-        }
-    }
-}
-```
-
-**`LoggerService`:**
 ```java
 public interface LoggerService {
-    void debug(String message);
-    void info(String message);
     void operationStarted(String operation);
     void operationCompleted(String operation);
+    void info(String operation, String message);
+    void debug(String operation, String message);
     void operationFailed(String operation, String reason);
     void error(String operation, Throwable ex);
 }
@@ -375,35 +458,43 @@ public interface LoggerService {
 @Service
 public class LoggerServiceImpl implements LoggerService {
 
-    @Override public void debug(String message) { log.debug("[{}] [{}] {}", user(), cid(), message); }
-    @Override public void info(String message)  { log.info("[{}] [{}] {}", user(), cid(), message); }
-
-    @Override public void operationStarted(String operation) {
-        log.info("[{}] [{}] {} : started", user(), cid(), operation);
-    }
-    @Override public void operationCompleted(String operation) {
-        log.info("[{}] [{}] {} : completed", user(), cid(), operation);
-    }
+    @Override public void operationStarted(String operation)   { log.info("{} : operation started", operation); }
+    @Override public void operationCompleted(String operation) { log.info("{} : operation completed", operation); }
+    @Override public void info(String operation, String message)  { log.info("{} : {}", operation, message); }
+    @Override public void debug(String operation, String message) { log.debug("{} : {}", operation, message); }
     @Override public void operationFailed(String operation, String reason) {
-        log.warn("[{}] [{}] {} : failed : {}", user(), cid(), operation, reason);
+        log.error("{} : operation failed : {}", operation, reason);
     }
     @Override public void error(String operation, Throwable ex) {
-        log.error("[{}] [{}] {} : error", user(), cid(), operation, ex);
+        log.error("{} : operation failed with exception", operation, ex);   // last arg → stack trace
     }
+}
+```
 
-    private String user() { return RequestDetailsHolder.getUserId(); }
-    private String cid()  { return RequestDetailsHolder.getCorrelationId(); }
+**Every public method looks like this:**
+```java
+@Override
+@Transactional(readOnly = true)
+public PagedResponse<AEResponse> search(FilterRequest request, int page, int pageSize, String currentUser) {
+    final String operation = "AEService -> search";
+    logger.operationStarted(operation);
+
+    ...                                                                    // the work
+    logger.debug(operation, "found " + result.getTotalElements() + " AEs");
+
+    logger.operationCompleted(operation);
+    return PagedResponse.of(result, items);
 }
 ```
 
 Rules:
-- Services use `logger` from `AbstractBaseService`; controllers, filters and the exception handler inject `LoggerService`. Only `LoggerServiceImpl` uses `@Slf4j` directly.
-- Operation names: `"<Class> -> <method>"`, e.g. `"AEService -> search"`. Started/completed around each public service method; failures are logged by `GlobalExceptionHandler`, not by the service.
-- Parameterised SLF4J messages (`{}`), never `String.format` or concatenation for log lines.
-- `operationFailed` is `warn` (expected 4xx), `error` is for unexpected failures with the stack trace.
-- Read the current user from `RequestDetailsHolder`, never from the request body.
-- Never log personal data beyond the user id. Never log request bodies at `info`.
-- `@Async` or new threads don't inherit the thread-local: pass `RequestDetails` explicitly if you ever need it there.
+- Operation name: `"<Class without Impl> -> <method>"`, in a `final String operation` at the top of the method.
+- Services get `logger` from `AbstractBaseService`; controllers, filters and `GlobalExceptionHandler` inject `LoggerService`.
+- **No `try/catch` just to log.** When an exception is thrown, `operationCompleted` is skipped and `GlobalExceptionHandler` logs the failure once (`operationFailed` for `MapException`, `error` for anything else). The log reads *started → failed*.
+- Never log passwords, tokens, full request bodies, or personal data beyond the user id.
+- Levels per environment in `application-<env>.yml`: `com.ss.corp.map.api: DEBUG` locally and in dev, `INFO` in QA and prod.
+
+**Later: request context.** When `RequestContextFilter` (package `filter`) and `RequestDetailsHolder` (package `context`, thread-local with `userId` + `correlationId`) are added, `LoggerServiceImpl` prefixes every line with `[userId] [correlationId]`; nothing else changes. The filter must clear the thread-local in a `finally` block (threads are pooled).
 
 ## 5. Naming
 
@@ -428,13 +519,46 @@ Rules:
 - **Sorting** must be stable: always add the id as a tiebreaker (`Sort.by("aeName", "aeId")`).
 - **Filters:** `{ "screen": "...", "filters": { "<key>": ["value", ...] } }`. OR within a key, AND across keys. `{}` = everything. Unknown key → 400.
 - No free-text search on the server.
-- Current user comes from `RequestDetailsHolder` (filled by `RequestContextFilter` from the header/SSO), never from the request body. Every response carries `X-Correlation-Id`.
+- Current user comes from the `X-User-Id` header for now, later from `RequestDetailsHolder` (SSO); never from the request body.
 
-## 7. What is built so far (Attribute Tagging, APIs 1 and 2)
+## 7. Configuration and environments
+
+- `application.yml` holds defaults; `application-local.yml`, `application-dev.yml`, `application-qa.yml`, `application-prod.yml` hold what differs. Pick with `SPRING_PROFILES_ACTIVE`.
+- App settings live under `app:` and are read only through `AppProperties` (4.2.1). No `@Value` in services.
+- **No secrets in git** (DB passwords, keys, tokens). Locally: environment variables or an untracked `application-local.yml`. Deployed (ECS): environment variables / secrets from the task definition (AWS Secrets Manager or SSM).
+- `spring.jpa.hibernate.ddl-auto: validate` everywhere except local (never `update`/`create` against shared databases).
+- `spring.jpa.open-in-view: false`.
+
+## 8. Database changes
+
+- Every schema change is a SQL script in the repo's `database/` folder, named `V<yyyyMMddHHmm>__<what>.sql` (e.g. `V202611221030__add_ae_lock.sql`), in the **same PR** as the entity change.
+- Scripts are additive and re-runnable where possible (`IF NOT EXISTS`); never edit a script that already ran in a shared environment, add a new one.
+- Add an index for every new column you filter or sort on; note it in the PR.
+- Table and column names: `snake_case`, schema `aur_map_app`.
+
+## 9. Security basics
+
+- Validate every input (Bean Validation on DTOs and params, spec constraints mirrored in code).
+- Never build SQL by concatenating input; use derived queries, JPQL parameters or `Specification`. Native queries use `:params` only.
+- The current user comes from the request context/SSO, never from the body or a query parameter.
+- Errors never expose stack traces, SQL or class names (4.7).
+- Authorisation rules (owner-only, lock holder only) are checked in the service and return 403/409 as the spec says.
+- CORS: only the UI's origins, configured once in `config`.
+- Run the SonarQube for IDE analysis on changed files before the PR; fix blockers and criticals.
+
+## 10. Performance
+
+- Every list endpoint is paged (6); never return an unbounded list of entities.
+- Read methods are `@Transactional(readOnly = true)`.
+- Avoid N+1 queries: fetch what a page needs in one or two queries (`IN (...)`, `EXISTS`), never a query per row in a loop.
+- Use projections / `select distinct x` for dropdown values instead of loading whole entities.
+- Data that is the same for every user (filters, attribute lists) is a caching candidate: `@Cacheable` once the cache infra exists, no code changes elsewhere.
+
+## 11. What is built so far (Attribute Tagging, APIs 1 and 2)
 
 Code lives in `code/src/main/java/com/ss/corp/map/api/` (PR #11 merged, PR #12 open).
 
-### 7.1 Tables
+### 11.1 Tables
 
 | Entity | Table | Key fields |
 |---|---|---|
@@ -443,7 +567,7 @@ Code lives in `code/src/main/java/com/ss/corp/map/api/` (PR #11 merged, PR #12 o
 
 All 11 attribute types share the one attributes table, told apart by `attr_type` (`est`, `risk`, `legalEntity`, `regulation`, `thirdParty`, `application`, `model`, `archerRiskUnit`, `costCenter`, `location`, `product`). DB fixes these entities expect are in `code/README.md`.
 
-### 7.2 Screen filters: one enum per screen
+### 11.2 Screen filters: one enum per screen
 
 ```
 UI sends screen ─► Screen.fromValue(screen) ─► that screen's filter enum ─► one query per value ─► response
@@ -484,7 +608,7 @@ public enum Screen {
 Result: `FilterResponse(screen, List<FilterOption(type, options)>)` in enum order. **No cache yet** (infra pending); later add `@Cacheable(cacheNames = "filters", key = "#screen")` + `@EnableCaching`, nothing else changes.
 
 **API 2, `AEServiceImpl.search(request, page, pageSize, currentUser)`:**
-1. Validate paging (page ≥ 1, 1 ≤ pageSize ≤ `appProperties.paging().maxPageSize()`).
+1. Paging limits are checked in the controller (`@Min`/`@Max`).
 2. `Screen.fromValue(request.screen())`; reject keys not in that screen's enum.
 3. Build a `Specification` in private methods of the service (no separate builder class):
    - always `aeStatus = true`
@@ -494,15 +618,17 @@ Result: `FilterResponse(screen, List<FilterOption(type, options)>)` in enum orde
 4. `aeRepository.findAll(spec, PageRequest.of(page - 1, pageSize, Sort.by("aeName", "aeId")))`.
 5. Map each entity with `AEResponse.from(ae, currentUser)`; return `PagedResponse.of(result, items)` (`result` is the Spring `Page`).
 
-### 7.3 Open items
+### 11.3 Open items
 
-- Spec: add `screen` to `FilterRequest`/`FilterResponse` in `api/openapi.yml`, and settle the screen name (`attribute-tagging` in paths vs `attributeTagging` in `Screen`).
-- Controller, `logger`, `context`, `RequestContextFilter`, `MapException` family, `GlobalExceptionHandler`, `config` classes: not written yet. `ValidationException` in `code/` must be changed to extend `MapException`.
+- Spec: add `screen` to `FilterRequest`/`FilterResponse` in `api/openapi.yml`, and settle the screen name (`attribute-tagging` in paths vs `attributeTagging` in `Screen`). **Do this first (section 0).**
+- Add `src/test/resources/openapi.yml` and the contract tests (0.5) for APIs 1 and 2.
+- `logger` package and started/completed logging in the existing controller and services (4.8).
+- `MapException` family + `GlobalExceptionHandler` (4.7); `ValidationException` to extend `MapException`.
+- Current user comes from the `X-User-Id` header for now; move to `RequestDetailsHolder` when the request-context filter exists.
 - `recommendationCount` and `lockedBy` on `AEResponse` are placeholders (0 / null) until those features exist.
-- Replace `AEMapper` with `AEResponse.from(...)` (4.5).
-- Make `FilterServiceImpl` and `AEServiceImpl` extend `AbstractBaseService`; move `MAX_PAGE_SIZE` to `app.paging.max-page-size`.
+- `AbstractBaseService` + `AppProperties` (`app.paging.max-page-size`).
 
-## 8. Next APIs (from the spec), in suggested order
+## 12. Next APIs (from the spec), in suggested order
 
 | # | Endpoint | Notes |
 |---|---|---|
@@ -512,18 +638,29 @@ Result: `FilterResponse(screen, List<FilterOption(type, options)>)` in enum orde
 | 6 | `GET /attribute-types/{type}/attributes` and `.../{attributeId}/children` | All Available list and children. Cache later. |
 | 7 | `GET`/`POST /saved-filters`, `DELETE /saved-filters/{id}` | Max 3 per user; stores a `FilterRequest`. |
 
-Each one = controller method + service interface method + impl + repository methods + DTO(s) with `from`/`toEntity`, following sections 4–6.
+Each one = controller method + service interface method + impl + repository methods + DTO(s) with `from`/`toEntity`, following sections 0 and 4–6, **after** the endpoint's spec is approved.
 
-## 9. Testing
+## 13. Testing
 
 - **Service:** unit tests with JUnit 5 + Mockito, mocking repositories. One test per rule (paging limits, unknown screen, unknown filter key, owner flag).
 - **Repository / Specification:** `@DataJpaTest` against PostgreSQL (Testcontainers) since we use arrays and native SQL; H2 won't do.
-- **Controller:** `@WebMvcTest` with mocked services, checking status codes and JSON shape against the spec.
+- **Controller / contract:** `@WebMvcTest` with mocked services, every test ends with the spec validator (0.5) so the JSON must match `openapi.yml`. One test per response code in the spec.
 - Test names: `methodName_condition_expectedResult`.
 
-## 10. Checklist before a PR
+## 14. Git and PR workflow
 
-- [ ] Endpoint, fields and status codes match `api/openapi.yml` (spec updated in the same PR if it changed)
+- Branch from `Develop`: `feature/<story-id>-<short-name>`, `bugfix/<story-id>-<short-name>`.
+- Spec change first (its own small PR in the docs repo, or the first commit of the PR), then code.
+- Commit messages: imperative, what and why (`Add AE search API`, `Fix owner filter for multiple owners`).
+- PR description: link to the story, the spec operation(s) implemented, screenshots of Swagger/Postman, DB scripts added.
+- At least one reviewer; reviewer checks the Definition of Done below. Squash-merge into `Develop`.
+- Never commit `.idea/`, `target/`, local yml with secrets.
+
+## 15. Definition of Done (checklist before a PR)
+
+- [ ] The endpoint was in `api/openapi.yml` and approved **before** coding (section 0)
+- [ ] Endpoint, fields, status codes and examples match the spec; `src/test/resources/openapi.yml` updated
+- [ ] Contract test per response code passes (0.5); breaking changes agreed with the UI team (0.4)
 - [ ] Controller is thin: one service call, no logic, no repository
 - [ ] Controller depends on the service **interface**
 - [ ] No entity in any controller signature or response; conversion via `Dto.from(...)` / `toEntity()`
@@ -531,7 +668,10 @@ Each one = controller method + service interface method + impl + repository meth
 - [ ] `@Transactional(readOnly = true)` on reads, `@Transactional` on writes
 - [ ] Bad input → `ValidationException`/Bean Validation (400); missing → 404; no `try/catch` in controllers
 - [ ] Service impl extends `AbstractBaseService`; uses its `logger` and `appProperties` (no `@Value`, no `@Slf4j`)
+- [ ] Every public controller/service method logs `operationStarted` first and `operationCompleted` last; details at `debug`
 - [ ] Failures throw a `MapException` subclass; no logging `try/catch` in controllers/services
 - [ ] Constructor injection, no field `@Autowired`, no `@Data` on entities
 - [ ] No new dependency without a reason; no unused code, flags or parameters (KISS/YAGNI)
 - [ ] Tests for the new service rules
+- [ ] DB script in `database/` for any schema change; indexes for new filters (8)
+- [ ] No secrets in code or yml; SonarQube for IDE clean on changed files (9)
