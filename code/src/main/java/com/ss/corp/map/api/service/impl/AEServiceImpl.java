@@ -5,7 +5,6 @@ import com.ss.corp.map.api.entity.AuditableEntityAttribute;
 import com.ss.corp.map.api.enums.Screen;
 import com.ss.corp.map.api.enums.ScreenFilter;
 import com.ss.corp.map.api.exception.ValidationException;
-import com.ss.corp.map.api.mapper.AEMapper;
 import com.ss.corp.map.api.model.AEResponse;
 import com.ss.corp.map.api.model.FilterRequest;
 import com.ss.corp.map.api.model.PagedResponse;
@@ -22,7 +21,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -34,26 +32,23 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AEServiceImpl implements AEService {
 
-    private static final int MAX_PAGE_SIZE = 100;
-
     /** aeId as a tiebreaker keeps paging stable when names repeat. */
     private static final Sort SORT = Sort.by("aeName", "aeId");
 
     private final AuditableEntityRepository aeRepository;
-    private final AEMapper aeMapper;
 
     @Override
     @Transactional(readOnly = true)
     public PagedResponse<AEResponse> search(FilterRequest request, int page, int pageSize, String currentUser) {
-        validatePaging(page, pageSize);
         Screen screen = Screen.fromValue(request.screen());
 
+        // Paging limits are checked in the controller (@Min/@Max).
         Page<AuditableEntity> result = aeRepository.findAll(
                 buildSpec(screen, request.filters()),
                 PageRequest.of(page - 1, pageSize, SORT));               // API 1-based → Spring 0-based
 
         List<AEResponse> items = result.getContent().stream()
-                .map(ae -> aeMapper.toResponse(ae, currentUser))
+                .map(ae -> AEResponse.from(ae, currentUser))
                 .toList();
 
         return PagedResponse.of(result, items);
@@ -91,10 +86,17 @@ public class AEServiceImpl implements AEService {
             case "aeName" -> root.get("aeName").in(values);
             case "businessArea" -> root.get("businessArea").in(values);
             case "businessDivision" -> root.get("division").in(values);
-            // ae_owner && values (PostgreSQL array overlap). Needs Hibernate 6.4+ (Spring Boot 3.2+).
-            case "aeOwner" -> ((HibernateCriteriaBuilder) cb).collectionOverlaps(root.get("aeOwner"), values);
+            case "aeOwner" -> ownerIn(values, root, cb);
             default -> cb.exists(taggedWith(key, values, root, query, cb));
         };
+    }
+
+    /** ae_owner contains any of the owners: OR of array_position(ae_owner, owner) IS NOT NULL. Works on any Hibernate 6. */
+    private Predicate ownerIn(List<String> owners, Root<AuditableEntity> root, CriteriaBuilder cb) {
+        return cb.or(owners.stream()
+                .map(owner -> cb.isNotNull(
+                        cb.function("array_position", Integer.class, root.get("aeOwner"), cb.literal(owner))))
+                .toArray(Predicate[]::new));
     }
 
     /** EXISTS an active tag of this type with one of these names on the AE. */
@@ -107,14 +109,5 @@ public class AEServiceImpl implements AEService {
                 cb.equal(tag.get("attrType"), type),
                 tag.get("attrName").in(names),
                 cb.isTrue(tag.get("attrStatus")));
-    }
-
-    private void validatePaging(int page, int pageSize) {
-        if (page < 1) {
-            throw new ValidationException("page", "Must be 1 or more");
-        }
-        if (pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
-            throw new ValidationException("pageSize", "Must be between 1 and " + MAX_PAGE_SIZE);
-        }
     }
 }
