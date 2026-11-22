@@ -7,7 +7,7 @@ We work **spec-first** (Spec-Driven Development, section 0): the OpenAPI spec is
 > **How to use it with Copilot**
 > 1. Make sure the endpoint is already in `api/openapi.yml` and approved (section 0). No spec, no code.
 > 2. Open `plan.md` and `api/openapi.yml` in the editor (or add both with `#file`).
-> 3. Ask for one slice at a time with the prompt in 0.6.
+> 3. Describe the business logic; Copilot replies with its understanding and plan, and builds only after you say "go" (0.6).
 > 4. Review against the **Definition of Done** (section 15) before you raise the PR.
 >
 > If this file and older docs disagree (for example `copilot/backend-copilot-instructions.md`), **this file wins**. If this file and `api/openapi.yml` disagree on an endpoint or a field, **the spec wins**: fix the spec first, in the same PR.
@@ -93,19 +93,22 @@ class AttributeTaggingControllerTest {
 }
 ```
 
-### 0.6 Copilot prompt for a new endpoint
-Paste and fill in:
-```
-#file:plan.md #file:openapi.yml
-Implement operation <operationId> (<METHOD> <path>) exactly as defined in openapi.yml, following plan.md:
-- controller method in <Controller> (thin, Swagger annotations matching the spec, logger started/completed)
-- service interface method + Impl (extends AbstractBaseService, logger started/completed/debug)
-- repository methods (derived names first, @Query only if needed)
-- request/response records with from(...)/toEntity() matching the spec schemas field by field
-- MapException subclasses for every error response listed in the spec
-- unit tests for the service rules and a contract test for the controller (section 0.5)
-Do not add fields, parameters or endpoints that are not in the spec.
-```
+### 0.6 Working with Copilot: understand → plan → approve → build
+
+Developers describe **business logic**, not code. Copilot (driven by `.github/copilot-instructions.md`) always works in this order:
+
+| Step | Copilot | Developer |
+|---|---|---|
+| 1. Understanding | Restates the rules as a numbered list, names the spec operation(s), inputs, outputs, error cases, and lists questions/assumptions. If it isn't in the spec, stops and proposes the spec change. | Checks it understood the business correctly; answers the questions. |
+| 2. Plan | Lists files to create/change by package, queries, DB scripts, and the 3–5 tests it will write. No code. | Reviews; asks for changes or replies **"go"**. |
+| 3. Build | Writes the agreed code and tests, then a summary with a curl to try. | Runs it, reviews against the Definition of Done (15), raises the PR. |
+
+Setup in `aur_map_api_svc`:
+- `.github/copilot-instructions.md` ← copy of `copilot/backend-copilot-instructions.md` (Copilot reads it automatically).
+- `.github/prompts/feature.prompt.md` ← copy of `copilot/prompts/feature.prompt.md` (a fill-in-the-blanks request; in VS Code run it with `/feature`, in IntelliJ paste it into Copilot Chat).
+- `docs/plan.md` ← this file; `api/openapi.yml` and `src/test/resources/openapi.yml` ← the spec.
+
+Use **agent mode** (or attach `#file:docs/plan.md #file:api/openapi.yml` in chat) so Copilot can read the plan and the spec.
 
 ---
 
@@ -642,10 +645,16 @@ Each one = controller method + service interface method + impl + repository meth
 
 ## 13. Testing
 
-- **Service:** unit tests with JUnit 5 + Mockito, mocking repositories. One test per rule (paging limits, unknown screen, unknown filter key, owner flag).
-- **Repository / Specification:** `@DataJpaTest` against PostgreSQL (Testcontainers) since we use arrays and native SQL; H2 won't do.
-- **Controller / contract:** `@WebMvcTest` with mocked services, every test ends with the spec validator (0.5) so the JSON must match `openapi.yml`. One test per response code in the spec.
-- Test names: `methodName_condition_expectedResult`.
+**Few and focused: 3 to 5 tests per feature**, enough to prove it works as the business expects. Not 10–15.
+
+| Kind | How many | What |
+|---|---|---|
+| Service unit test (JUnit 5 + Mockito, repositories mocked) | 2–3 | The happy path + the 1–2 most important rules or errors (e.g. not owner → 403, missing → 404) |
+| Controller contract test (`@WebMvcTest` + spec validator, 0.5) | 1–2 | Happy path JSON validated against `openapi.yml`; one 4xx if the endpoint has input rules |
+| Repository test (`@DataJpaTest`, Testcontainers PostgreSQL) | 0–1 | Only for a new native query or Specification (H2 can't do our arrays) |
+
+- Names: `methodName_condition_expectedResult`; Arrange / Act / Assert; one behaviour per test.
+- Don't test getters, records, enums or Spring wiring.
 
 ## 14. Git and PR workflow
 
@@ -672,6 +681,6 @@ Each one = controller method + service interface method + impl + repository meth
 - [ ] Failures throw a `MapException` subclass; no logging `try/catch` in controllers/services
 - [ ] Constructor injection, no field `@Autowired`, no `@Data` on entities
 - [ ] No new dependency without a reason; no unused code, flags or parameters (KISS/YAGNI)
-- [ ] Tests for the new service rules
+- [ ] 3–5 tests: service happy path + key rules, one contract test (13)
 - [ ] DB script in `database/` for any schema change; indexes for new filters (8)
 - [ ] No secrets in code or yml; SonarQube for IDE clean on changed files (9)
