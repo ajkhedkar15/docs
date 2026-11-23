@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan API Spec
-  version: 6.0.0
+  version: 7.0.0
   description: |
     Open API specification for myAuditPlan (mAP) - Attribute Tagging.
 
@@ -15,15 +15,15 @@ info:
     and clicks Update to save the whole list. Everyone sees the recommendations; after each Update
     the backend re-runs the recommendation rules.
 
-    Some types are hierarchies. Only an attribute without children can be tagged: adding one that
+    Some attribute types are hierarchies. Only an attribute without children can be tagged: adding one that
     has children opens the Required Dependency dialog, where the user picks at least one child,
     level by level, until every pick has no children.
 
     ## APIs
     | # | API | Used for |
     |---|---|---|
-    | 1 | `GET /attribute-tagging/filters` | Every dropdown and all its values |
-    | 2 | `POST /attribute-tagging/aes/search` | The AE list for the selected filters |
+    | 1 | `GET /attribute-tagging/filters` | Every dropdown and all its values (built) |
+    | 2 | `POST /attribute-tagging/aes/search` | The AE list for the selected filters (built) |
     | 3 | `GET /attribute-tagging/aes/{aeId}` | One AE: tagged and recommended, per attribute type |
     | 4 | `POST` / `DELETE /attribute-tagging/aes/{aeId}/lock` | Take or release the edit lock |
     | 5 | `PUT /attribute-tagging/aes/{aeId}/attributes` | Update: save the full list of tagged attributes |
@@ -49,15 +49,23 @@ info:
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
     ## Filters (the same pattern on every screen)
-    Every screen has `GET /<screen>/filters` (its dropdowns, as `{ type, options: [text, ...] }`),
-    `POST /<screen>/aes/search` with `{ filters: { <type>: [text, ...] } }`, and `/<screen>/saved-filters`.
+    Every screen has `GET /<screen>/filters` → `{ screen, filters: [{ type, options: [text, ...] }] }`,
+    `POST /<screen>/aes/search` with `{ screen, filters: { <type>: [text, ...] } }`, and `/<screen>/saved-filters`.
     The shapes are shared (components/schemas); only the list of dropdowns differs per screen.
+    `screen` is the screen's key (`attributeTagging`); the backend uses it to pick the screen's list of dropdowns.
 
     Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
-    and Division come from the AE table; the other 11 are the attribute types, each from its own
-    table, and find the AEs that have the picked values tagged.
+    and Business Division come from the AE table; the other 11 are the attribute types, all from the
+    AE attributes table (by attribute type), and find the AEs that have the picked values tagged.
     Values inside one filter are OR'ed; different filters are AND'ed. There is no free-text search:
     typing inside a dropdown only narrows that dropdown's options, in the browser.
+
+    ## Conventions
+    - Paging is 1-based (`page=1` is the first page), `pageSize` 1-100, default 20.
+    - Lists are sorted as each operation says, always with a stable tiebreaker (the id).
+    - Dates are UTC ISO-8601 (`2026-11-19T12:02:00Z`). Ids are strings (AE ids keep leading zeros).
+    - Every error is an RFC 7807 `ProblemDetail` (`application/problem+json`); field errors are in `errors[]`.
+    - Breaking changes bump the major `info.version` and are agreed with the UI first.
   license:
     name: Proprietary
 servers:
@@ -66,66 +74,70 @@ security:
   - devUserHeader: []
   - bearerAuth: []
 tags:
-  - name: AttributeTagging
+  - name: Attribute Tagging
     description: Attribute Tagging screen - filters, AE list and detail, edit lock, tagging, saved filters
 paths:
   /attribute-tagging/filters:
     get:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 1. All dropdowns and their values
       description: |
-        Every filter in screen order as { type, options }, where options is a plain list of text,
-        sorted, without duplicates. 5 come from the AE table; the other 11 are the attribute types,
-        each with every taggable value from that type's table (2,000+ each). The same for every user,
+        The screen and every dropdown in screen order as { type, options }, where options is a plain
+        list of text, sorted, without duplicates. 5 come from the AE table; the other 11 are the
+        attribute types, each with every active value of that type (2,000+ each). A dropdown with no
+        data has an empty options list. The same for every user,
         so the server caches it. Typing in a dropdown narrows its options in the browser; there is
         no search call. The UI holds the label shown for each type.
       operationId: getFilters
       responses:
         '200':
-          description: Filters in screen order
+          description: The screen and its dropdowns in screen order
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AttributeTaggingFilter'
+                $ref: '#/components/schemas/FilterResponse'
               example:
-                - type: aeOwner
-                  options:
-                    - Jane Doe
-                    - John Smith
-                - type: aeId
-                  options:
-                    - '000000004561'
-                    - '000000004562'
-                - type: aeName
-                  options:
-                    - Fund Accounting Operations
-                    - State Street IM Systematic Equity
-                - type: est
-                  options:
-                    - Custody
-                    - Fund Accounting
-                - type: legalEntity
-                  options:
-                    - Example Bank UK Ltd
-                    - Example Bank US Inc
-                - type: businessDivision
-                  options:
-                    - Corporate Divisions
+                screen: attributeTagging
+                filters:
+                  - type: aeId
+                    options:
+                      - '000000004561'
+                      - '000000004562'
+                  - type: aeName
+                    options:
+                      - Fund Accounting Operations
+                      - State Street IM Systematic Equity
+                  - type: aeOwner
+                    options:
+                      - Jane Doe
+                      - John Smith
+                  - type: est
+                    options:
+                      - Custody
+                      - Fund Accounting
+                  - type: legalEntity
+                    options:
+                      - Example Bank UK Ltd
+                      - Example Bank US Inc
+                  - type: businessDivision
+                    options:
+                      - Corporate Divisions
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /attribute-tagging/aes/search:
     post:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 2. AE list for the selected filters
       description: |
-        The server applies the filters and returns one page of cards, sorted by AE name.
+        The server applies the filters and returns one page of active AEs, sorted by AE name then AE id.
         The screen opens with filters = { aeOwner: [the user's name] }. {} returns all AEs.
-        Values are the same text as in the filters options.
-      operationId: searchAes
+        Values are the same text as in the filters options. A filter type the screen doesn't have,
+        an unknown screen, or paging out of range returns 400.
+      operationId: searchAEs
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -134,20 +146,19 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filters:
-                  $ref: '#/components/schemas/Filters'
+              $ref: '#/components/schemas/FilterRequest'
             examples:
               screenOpens:
                 summary: Screen opens - my AEs
                 value:
+                  screen: attributeTagging
                   filters:
                     aeOwner:
                       - John Smith
               filtered:
                 summary: User picked more filters
                 value:
+                  screen: attributeTagging
                   filters:
                     aeOwner:
                       - John Smith
@@ -160,14 +171,16 @@ paths:
                       - Corporate Divisions
               allAes:
                 summary: No filters - all AEs
-                value: {}
+                value:
+                  screen: attributeTagging
+                  filters: {}
       responses:
         '200':
           description: One page of AE cards (empty items if none match)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AePage'
+                $ref: '#/components/schemas/AEPagedResponse'
               example:
                 page: 1
                 pageSize: 20
@@ -188,16 +201,18 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /attribute-tagging/aes/{aeId}:
     get:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 3. One AE with its 11 attribute types - tagged and recommended
       description: |
         Anyone can view, including the recommendations. canEdit is true only for the owner who
         holds the lock; everyone else sees the sections read-only.
         All Available is not included: it is the same for every AE (API 6).
-      operationId: getAe
+      operationId: getAE
       parameters:
         - $ref: '#/components/parameters/AeId'
       responses:
@@ -206,7 +221,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AeDetail'
+                $ref: '#/components/schemas/AEDetailResponse'
               example:
                 aeId: '000000004561'
                 aeName: State Street IM Systematic Equity
@@ -266,6 +281,8 @@ paths:
                     recommended: []
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '404':
           $ref: '#/components/responses/NotFound'
   /attribute-tagging/aes/{aeId}/lock:
@@ -273,7 +290,7 @@ paths:
       - $ref: '#/components/parameters/AeId'
     post:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 4a. Take or renew the edit lock (Edit button)
       description: |
         - An owner and nobody else holds the lock (or it expired) -> the caller gets it.
@@ -281,7 +298,7 @@ paths:
           5 minutes while the user is active in edit mode.
         - Another owner holds it -> 409.
         - Not an owner -> 403.
-      operationId: lockAe
+      operationId: lockAE
       responses:
         '200':
           description: The caller holds the lock
@@ -291,6 +308,8 @@ paths:
                 $ref: '#/components/schemas/Lock'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '403':
           $ref: '#/components/responses/NotOwner'
         '404':
@@ -299,23 +318,25 @@ paths:
           $ref: '#/components/responses/Locked'
     delete:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 4b. Release the edit lock (Done, Cancel, or opening another AE)
       description: |
         Releases the lock if the caller holds it. Does nothing if they don't (it may have expired).
         Unsaved changes are discarded; the UI warns before calling this.
-      operationId: unlockAe
+      operationId: unlockAE
       responses:
         '204':
           description: Released, or there was nothing to release
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '404':
           $ref: '#/components/responses/NotFound'
   /attribute-tagging/aes/{aeId}/attributes:
     put:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 5. Update - save the full list of tagged attributes
       description: |
         Send every attribute that should be tagged after the save, across all 11 types.
@@ -327,7 +348,7 @@ paths:
         After saving, the recommendation rules run again for this AE, because the new tags can
         change what is recommended. The response therefore has fresh recommended lists and counts.
         The lock is kept, so the user can update again.
-      operationId: updateAeAttributes
+      operationId: updateAEAttributes
       parameters:
         - $ref: '#/components/parameters/AeId'
       requestBody:
@@ -353,11 +374,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AeDetail'
+                $ref: '#/components/schemas/AEDetailResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '403':
           $ref: '#/components/responses/NotOwner'
         '404':
@@ -367,10 +390,10 @@ paths:
   /attribute-tagging/attribute-types/{type}/attributes:
     get:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 6a. All Available - the top-level attributes of one type
       description: |
-        Every top-level attribute of the type (parentId = null), from that type's own table. For types
+        Every top-level active attribute of the type (parentId = null). For types
         without a hierarchy that is every attribute; expect 2,000+ per type. The same for every AE, so
         the server caches it and the UI loads it once, when a section is opened in edit mode. The UI hides the ones already tagged or recommended;
         its search box filters this list in the browser.
@@ -401,10 +424,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /attribute-tagging/attribute-types/{type}/attributes/{attributeId}/children:
     get:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 6b. Children of one attribute (Required Dependency dialog)
       description: |
         Called when the user adds an attribute that has children. The dialog lists these; the user
@@ -441,12 +466,14 @@ paths:
                   hasChildren: false
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '404':
           $ref: '#/components/responses/NotFound'
   /attribute-tagging/saved-filters:
     get:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 7a. The user's saved filters (up to 3)
       operationId: getSavedFilters
       responses:
@@ -461,9 +488,11 @@ paths:
                   $ref: '#/components/schemas/SavedFilter'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
     post:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 7b. Save the current filters
       description: At most 3 per user. A 4th returns 409; the user deletes one first.
       operationId: createSavedFilter
@@ -489,12 +518,14 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '409':
           description: The user already has 3 saved filters, or the name is already used
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ProblemDetail'
               example:
                 status: 409
                 title: Conflict
@@ -502,7 +533,7 @@ paths:
   /attribute-tagging/saved-filters/{id}:
     delete:
       tags:
-        - AttributeTagging
+        - Attribute Tagging
       summary: 7c. Delete a saved filter
       operationId: deleteSavedFilter
       parameters:
@@ -517,6 +548,8 @@ paths:
           description: Deleted
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '404':
           $ref: '#/components/responses/NotFound'
 components:
@@ -532,28 +565,57 @@ components:
       bearerFormat: JWT
       description: Planned. The token carries the user id.
   schemas:
-    Filter:
+    Screen:
+      type: string
+      description: Screen key. Picks the screen's list of dropdowns on the backend.
+      enum:
+        - attributeTagging
+      example: attributeTagging
+    FilterOption:
       type: object
       description: |
         One dropdown: its type and a plain list of values. The same shape on every screen; each
-        screen defines its own list of types in its own folder.
+        screen defines its own list of types (for Attribute Tagging: AttributeTaggingFilterType).
       required:
         - type
         - options
       properties:
         type:
-          type: string
-          description: The screen's filter type. Used as the key in Filters.
-          example: legalEntity
+          description: The screen's filter type, used as the key in Filters. When a second screen is added, its type enum joins here with oneOf.
+          allOf:
+            - $ref: '#/components/schemas/AttributeTaggingFilterType'
         options:
           type: array
-          description: Every value, as a plain list of text, sorted, no duplicates
+          description: Every value, as a plain list of text, sorted, no duplicates (empty if none)
           items:
             type: string
           example:
             - Example Bank Germany AG
             - Example Bank UK Ltd
             - Example Bank US Inc
+    FilterResponse:
+      type: object
+      description: A screen's dropdowns, in screen order
+      required:
+        - screen
+        - filters
+      properties:
+        screen:
+          $ref: '#/components/schemas/Screen'
+        filters:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterOption'
+    FilterRequest:
+      type: object
+      description: The search request - the screen and the selected values
+      required:
+        - screen
+      properties:
+        screen:
+          $ref: '#/components/schemas/Screen'
+        filters:
+          $ref: '#/components/schemas/Filters'
     AttributeTaggingFilterType:
       type: string
       description: |
@@ -562,7 +624,7 @@ components:
         - aeId, aeName, aeOwner, businessArea, businessDivision - from the AE table.
           AE Owner is preselected with the logged-in user.
         - est, risk, legalEntity, regulation, thirdParty, application, model, archerRiskUnit,
-          costCenter, location, product - the 11 attribute types, each from its own table.
+          costCenter, location, product - the 11 attribute types, from the AE attributes table.
           Options = every taggable value of that type; picking one finds the AEs that have it tagged.
       enum:
         - aeId
@@ -581,39 +643,52 @@ components:
         - costCenter
         - location
         - product
-    AttributeTaggingFilter:
-      description: One Attribute Tagging dropdown (the common Filter, with this screen's types)
-      allOf:
-        - $ref: '#/components/schemas/Filter'
-        - type: object
-          properties:
-            type:
-              $ref: '#/components/schemas/AttributeTaggingFilterType'
-    ErrorResponse:
+    ProblemDetail:
       type: object
-      description: RFC 7807 problem detail (Spring ProblemDetail)
+      description: RFC 7807 problem detail (Spring ProblemDetail), content type application/problem+json
+      required:
+        - status
+        - title
       properties:
-        status:
-          type: integer
+        type:
+          type: string
+          description: Problem type URI; about:blank when there is none
+          example: about:blank
         title:
           type: string
+          example: Bad Request
+        status:
+          type: integer
+          example: 400
         detail:
           type: string
+          description: Message the UI can show
+          example: Unknown filter for this screen
+        instance:
+          type: string
+          description: The request path
+          example: /api/v1/attribute-tagging/aes/search
         errors:
           type: array
+          description: Field-level errors (validation only)
           items:
             type: object
+            required:
+              - field
+              - message
             properties:
               field:
                 type: string
+                example: filters.colour
               message:
                 type: string
+                example: Unknown filter for this screen
     Filters:
       type: object
       description: |
         Selected values, by filter type: the same text as in options. The same on every screen:
-        values inside one filter are OR'ed; different filters are AND'ed. {} = no filter = everything.
-        A type the screen doesn't have returns 400.
+        values inside one filter are OR'ed; different filters are AND'ed. {} or missing = no filter =
+        everything. An empty list for a type is ignored. A type the screen doesn't have returns 400.
       additionalProperties:
         type: array
         items:
@@ -659,7 +734,7 @@ components:
         name:
           type: string
           example: John Smith
-    AeCard:
+    AEResponse:
       type: object
       description: One AE card in the list
       required:
@@ -700,7 +775,7 @@ components:
             - $ref: '#/components/schemas/Person'
           nullable: true
           description: Set when an owner is editing this AE right now
-    AePage:
+    AEPagedResponse:
       allOf:
         - $ref: '#/components/schemas/PageMeta'
         - type: object
@@ -710,7 +785,7 @@ components:
             items:
               type: array
               items:
-                $ref: '#/components/schemas/AeCard'
+                $ref: '#/components/schemas/AEResponse'
     Lock:
       type: object
       description: Who holds the edit lock, and until when
@@ -754,7 +829,7 @@ components:
     Attribute:
       type: object
       description: |
-        One attribute. Each of the 11 types has its own table, with 2,000+ attributes each.
+        One attribute, of one of the 11 types (2,000+ attributes per type).
         Some types are hierarchies: an attribute can have children, several levels deep.
         Only an attribute with no children (hasChildren = false) can be tagged. Picking one that has
         children opens the "Required Dependency" dialog, filled from the children endpoint, until the
@@ -865,7 +940,7 @@ components:
           description: Suggested to Add - excludes attributes already tagged
           items:
             $ref: '#/components/schemas/RecommendedAttribute'
-    AeDetail:
+    AEDetailResponse:
       type: object
       description: One AE with its 11 attribute type sections
       required:
@@ -985,17 +1060,17 @@ components:
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/ProblemDetail'
           example:
             status: 401
             title: Unauthorized
             detail: No user identified. Pick your name again.
     BadRequest:
-      description: Invalid request (unknown filter key, pageSize over 100, missing comment on a new attribute ...)
+      description: Invalid request (unknown screen or filter key, page below 1, pageSize over 100, missing comment on a new attribute ...)
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/ProblemDetail'
           example:
             status: 400
             title: Bad Request
@@ -1008,7 +1083,7 @@ components:
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/ProblemDetail'
           example:
             status: 404
             title: Not Found
@@ -1018,7 +1093,7 @@ components:
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/ProblemDetail'
           example:
             status: 403
             title: Forbidden
@@ -1028,11 +1103,21 @@ components:
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/ProblemDetail'
           example:
             status: 409
             title: Conflict
             detail: Auditable Entity 000000004561 is being edited by Jane Doe
+    InternalError:
+      description: Unexpected server error. The detail is generic; the cause is in the server log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            status: 500
+            title: Internal Server Error
+            detail: Something went wrong
   parameters:
     Page:
       name: page
