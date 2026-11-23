@@ -623,7 +623,8 @@ Result: `FilterResponse(screen, List<FilterOption(type, options)>)` in enum orde
 
 ### 11.3 Open items
 
-- Spec: add `screen` to `FilterRequest`/`FilterResponse` in `api/openapi.yml`, and settle the screen name (`attribute-tagging` in paths vs `attributeTagging` in `Screen`). **Do this first (section 0).**
+- Spec v7.0.0 (PR #14) adds `screen` to `FilterRequest`/`FilterResponse` and names schemas and operationIds as the code does. Screen key in bodies: `attributeTagging`; in paths: `attribute-tagging`.
+- Spec says a missing `X-User-Id` is 401; the controller currently accepts it as optional. Add the check (or the request-context filter) before the UI goes live.
 - Add `src/test/resources/openapi.yml` and the contract tests (0.5) for APIs 1 and 2.
 - `logger` package and started/completed logging in the existing controller and services (4.8).
 - `MapException` family + `GlobalExceptionHandler` (4.7); `ValidationException` to extend `MapException`.

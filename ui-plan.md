@@ -185,7 +185,6 @@ export function useAESearch(filters: Record<string, string[]>, page: number, pag
   });
 }
 ```
-> `screen` in the body is in the backend but not yet in the spec (open item in `plan.md` 11.3). Until the spec is updated and types regenerated, TypeScript will flag it: fix the spec, don't cast around it.
 
 ### 4.3 UI state
 - Local UI state (open/closed, selected tab, edit draft) → `useState`, or `useReducer` when there are several related values.
@@ -204,10 +203,10 @@ export function useAESearch(filters: Record<string, string[]>, page: number, pag
 // src/features/attribute-tagging/components/AECard.tsx
 import type { components } from '@/api/generated';
 
-type AeCard = components['schemas']['AeCard'];
+type AEResponse = components['schemas']['AEResponse'];
 
 type Props = {
-  ae: AeCard;
+  ae: AEResponse;
   onOpen: (aeId: string) => void;
 };
 
@@ -294,7 +293,7 @@ API field names stay exactly as in the spec (`aeId`, `recommendationCount`); don
 | # | Endpoint | When |
 |---|---|---|
 | 1 | `GET /filters` | On open: every dropdown with all its values |
-| 2 | `POST /aes/search?page&pageSize` | On open and on every filter change: body `{ screen, filters: { <key>: [text, …] } }` (`screen` pending in the spec) |
+| 2 | `POST /aes/search?page&pageSize` | On open and on every filter change: body `{ screen, filters: { <key>: [text, …] } }` |
 | 3 | `GET /aes/{aeId}` | Opening an AE |
 | 4 | `POST` / `DELETE /aes/{aeId}/lock` | Edit / Done, Cancel, or switching AE |
 | 5 | `PUT /aes/{aeId}/attributes` | Update button |

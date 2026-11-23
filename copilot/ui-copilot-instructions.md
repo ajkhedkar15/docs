@@ -74,7 +74,7 @@ src/test       setup, MSW handlers, renderWithProviders
 - Tests next to the file: `AECard.tsx` + `AECard.test.tsx`.
 
 **Data**
-- API types only from `src/api/generated.ts` (`components['schemas']['AeCard']`). Never hand-write API types.
+- API types only from `src/api/generated.ts` (`components['schemas']['AEResponse']`). Never hand-write API types.
 - Every call goes through `client` (`src/api/client.ts`) inside a hook: `useQuery` for reads, `useMutation` for writes. Components never call `fetch` or `client`.
 - Query keys only from `queryKeys.ts`. After a mutation, set or invalidate the affected keys.
 - Don't copy server data into `useState`. UI state in `useState`/`useReducer`; filters in the URL; only the current user in Context. No global store.
@@ -107,7 +107,7 @@ src/test       setup, MSW handlers, renderWithProviders
 
 **You (step 1 + 2):**
 > **Understanding**
-> 1. Each card in the search results (`searchAes`, `POST /aes/search`) has `lockedBy` (`Person | null`).
+> 1. Each card in the search results (`searchAEs`, `POST /aes/search`) has `lockedBy` (`Person | null`).
 > 2. If `lockedBy` is set and isn't me → show "Being edited by {lockedBy.name}" and no Edit button.
 > 3. If it's me or null → as today.
 >

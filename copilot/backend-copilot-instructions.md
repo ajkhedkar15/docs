@@ -107,7 +107,7 @@ return result;
 > Questions: the spec's `AEDetailResponse` also has `lock` and `canEdit`. Lock isn't built yet. Return `lock = null`, `canEdit = isOwner` for now?
 >
 > **Plan**
-> - `model/AEDetailResponse.java`: record per spec + `static from(AuditableEntity, List<AuditableEntityAttribute>, String user)`
+> - `model/AEDetailResponse.java`: record per the spec's `AEDetailResponse` + `static from(AuditableEntity, List<AuditableEntityAttribute>, String user)`
 > - `service/AEService.java`: add `AEDetailResponse getAE(String aeId, String currentUser)`
 > - `service/impl/AEServiceImpl.java`: implement; `NotFoundException` if missing
 > - `repository/AERepository.java`: use existing `findByAeIdAndAeStatusTrue`
