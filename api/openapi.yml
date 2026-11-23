@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: myAuditPlan (mAP) API
-  version: 7.1.0
+  version: 8.0.0
   description: |
     Backend for the mAP. Open API specification for myAuditPlan (mAP) - Attribute Tagging.
 
@@ -26,13 +26,13 @@ info:
     ## APIs
     | # | API | Used for |
     |---|---|---|
-    | 1 | `GET /attribute-tagging/filters` | Every dropdown and all its values (built) |
-    | 2 | `POST /attribute-tagging/aes/search` | The AE list for the selected filters (built) |
+    | 1 | `GET /screens/{screen}/filters` | Every dropdown and all its values (common, any screen) |
+    | 2 | `POST /screens/{screen}/aes/search` | The AE list for the selected filters (common, any screen) |
     | 3 | `GET /attribute-tagging/aes/{aeId}` | One AE: tagged and recommended, per attribute type |
     | 4 | `POST` / `DELETE /attribute-tagging/aes/{aeId}/lock` | Take or release the edit lock |
     | 5 | `PUT /attribute-tagging/aes/{aeId}/attributes` | Update: save the full list of tagged attributes |
     | 6 | `GET /attribute-tagging/attribute-types/{type}/attributes` (+ `/{attributeId}/children`) | All Available, and the Required Dependency dialog |
-    | 7 | `GET` / `POST` / `DELETE /attribute-tagging/saved-filters` | Up to 3 saved filters per user |
+    | 7 | `GET` / `POST` / `DELETE /screens/{screen}/saved-filters` | Up to 3 saved filters per user per screen (common, any screen) |
     | 8 | `GET /attribute-tagging/aes/{aeId}/history` | The AE's tagging history (audit trail) |
     | 9 | `GET /users` | The "Who are you?" list: every AE owner with id and name |
 
@@ -54,11 +54,17 @@ info:
     - Update keeps the lock, so the user can save more than once. Done, Cancel or opening another
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
-    ## Filters (the same pattern on every screen)
-    Every screen has `GET /<screen>/filters` → `{ screen, filters: [{ type, options: [text, ...] }] }`,
-    `POST /<screen>/aes/search` with `{ screen, filters: { <type>: [text, ...] } }`, and `/<screen>/saved-filters`.
+    ## Common screen APIs (filters, search, saved filters)
+    Filters, AE search and saved filters are the same APIs for every screen. The UI puts the screen in
+    the URL, and the backend uses it to pick the screen's list of dropdowns:
+    - `GET /screens/{screen}/filters` → `{ screen, filters: [{ type, options: [text, ...] }] }`
+    - `POST /screens/{screen}/aes/search` with `{ filters: { <type>: [text, ...] } }`
+    - `GET` / `POST /screens/{screen}/saved-filters`, `DELETE /screens/{screen}/saved-filters/{id}`
+    `{screen}` is the screen's key in kebab-case (`attribute-tagging`); an unknown screen returns 400.
     The shapes are shared (components/schemas); only the list of dropdowns differs per screen.
-    `screen` is the screen's key (`attributeTagging`); the backend uses it to pick the screen's list of dropdowns.
+    APIs that only one screen has (AE detail, lock, update, attribute types, history) stay under that
+    screen's own path (`/attribute-tagging/...`).
+    Adding a screen: add its key to `Screen`, its `<Screen>FilterType` enum, and its dropdowns in the backend.
 
     Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
     and Business Division come from the AE table; the other 11 are the attribute types, all from the
@@ -72,6 +78,14 @@ info:
     - Dates are UTC ISO-8601 (`2026-11-19T12:02:00Z`). Ids are strings (AE ids keep leading zeros).
     - Every error is an `ApiError` (`application/json`): `status`, `title`, `detail`, `instance`; field errors are in `errors[]`.
     - Breaking changes bump the major `info.version` and are agreed with the UI first.
+
+    ## Changes in 8.0.0 (breaking)
+    - Filters, AE search and saved filters are common to every screen and take the screen in the URL:
+      `/attribute-tagging/filters` → `/screens/{screen}/filters`, and the same for `aes/search` and
+      `saved-filters`. operationIds are unchanged.
+    - `screen` is removed from the search body (it is in the URL). `Screen` values are kebab-case
+      (`attribute-tagging`), the same as in the URL; `FilterResponse.screen` echoes it.
+    - Saved filters are per user and per screen (up to 3 per screen).
 
     ## Changes in 7.1.0 (all additive, nothing breaking)
     - API 8 `getAEHistory` and API 9 `getUsers` added.
@@ -92,16 +106,20 @@ security:
 tags:
   - name: Attribute Tagging
     description: Find Auditable Entities and tag attributes to them
+  - name: Screens
+    description: Common to every screen - filters, AE search and saved filters, with the screen in the URL
   - name: Users
     description: Shared by every screen - who the users are
 paths:
-  /attribute-tagging/filters:
+  /screens/{screen}/filters:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     get:
       tags:
-        - Attribute Tagging
+        - Screens
       summary: Get filter dropdowns
       description: |
-        Every dropdown of the Attribute Tagging screen, in screen order, each with all its values as
+        Every dropdown of the screen in the URL, in screen order, each with all its values as
         plain text. Same for every user.
         The screen and every dropdown in screen order as { type, options }, where options is a plain
         list of text, sorted, without duplicates. 5 come from the AE table; the other 11 are the
@@ -118,7 +136,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FilterResponse'
               example:
-                screen: attributeTagging
+                screen: attribute-tagging
                 filters:
                   - type: aeId
                     options:
@@ -147,17 +165,20 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
-  /attribute-tagging/aes/search:
+  /screens/{screen}/aes/search:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     post:
       tags:
-        - Attribute Tagging
+        - Screens
       summary: Search Auditable Entities
       description: |
         Active AEs matching the selected filters, sorted by AE name (then AE id).
         OR within a dropdown, AND across dropdowns. Empty filters return all AEs.
         The screen opens with filters = { aeOwner: [the user's name] }. {} returns all AEs.
         Values are the same text as in the filters options. A filter type the screen doesn't have,
-        an unknown screen, or paging out of range returns 400.
+        an unknown screen, or paging out of range returns 400. The cards are the screen's own (for
+        Attribute Tagging: AEResponse).
       operationId: searchAEs
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -172,14 +193,12 @@ paths:
               screenOpens:
                 summary: Screen opens - my AEs
                 value:
-                  screen: attributeTagging
                   filters:
                     aeOwner:
                       - John Smith
               filtered:
                 summary: User picked more filters
                 value:
-                  screen: attributeTagging
                   filters:
                     aeOwner:
                       - John Smith
@@ -193,7 +212,6 @@ paths:
               allAes:
                 summary: No filters - all AEs
                 value:
-                  screen: attributeTagging
                   filters: {}
       responses:
         '200':
@@ -682,12 +700,14 @@ paths:
           $ref: '#/components/responses/InternalError'
         '404':
           $ref: '#/components/responses/NotFound'
-  /attribute-tagging/saved-filters:
+  /screens/{screen}/saved-filters:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     get:
       tags:
-        - Attribute Tagging
+        - Screens
       summary: Get saved filters
-      description: Only the caller's own saved filters for this screen.
+      description: Only the caller's own saved filters for the screen in the URL.
       operationId: getSavedFilters
       responses:
         '200':
@@ -720,11 +740,11 @@ paths:
           $ref: '#/components/responses/InternalError'
     post:
       tags:
-        - Attribute Tagging
+        - Screens
       summary: Save the current filters
       description: |
-        At most 3 per user. A 4th returns 409; the user deletes one first. Names are unique per user
-        (409 otherwise). The filters follow the same rules as API 2: an unknown filter type returns 400.
+        At most 3 per user per screen. A 4th returns 409; the user deletes one first. Names are unique
+        per user and screen (409 otherwise). The filters follow the same rules as API 2: an unknown filter type returns 400.
       operationId: createSavedFilter
       requestBody:
         required: true
@@ -767,12 +787,14 @@ paths:
                 status: 409
                 title: Conflict
                 detail: You can save up to 3 filters. Delete one first.
-  /attribute-tagging/saved-filters/{id}:
+  /screens/{screen}/saved-filters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     delete:
       tags:
-        - Attribute Tagging
+        - Screens
       summary: Delete a saved filter
-      description: Only the caller's own. Another user's id returns 404, the same as an id that doesn't exist.
+      description: Only the caller's own, on this screen. Another user's or another screen's id returns 404, the same as an id that doesn't exist.
       operationId: deleteSavedFilter
       parameters:
         - name: id
@@ -846,10 +868,10 @@ components:
   schemas:
     Screen:
       type: string
-      description: Screen key. Picks the screen's list of dropdowns on the backend.
+      description: Screen key, in kebab-case, as in the URL. Picks the screen's list of dropdowns on the backend.
       enum:
-        - attributeTagging
-      example: attributeTagging
+        - attribute-tagging
+      example: attribute-tagging
     FilterOption:
       type: object
       description: |
@@ -874,7 +896,7 @@ components:
             - Example Bank US Inc
     FilterResponse:
       type: object
-      description: A screen's dropdowns, in screen order
+      description: A screen's dropdowns, in screen order. screen echoes the screen in the URL.
       required:
         - screen
         - filters
@@ -887,12 +909,8 @@ components:
             $ref: '#/components/schemas/FilterOption'
     FilterRequest:
       type: object
-      description: The search request - the screen and the selected values
-      required:
-        - screen
+      description: The search request - the selected values. The screen is in the URL.
       properties:
-        screen:
-          $ref: '#/components/schemas/Screen'
         filters:
           $ref: '#/components/schemas/Filters'
     AttributeTaggingFilterType:
@@ -948,7 +966,7 @@ components:
         instance:
           type: string
           description: The request path
-          example: /api/v1/attribute-tagging/aes/search
+          example: /api/v1/screens/attribute-tagging/aes/search
         errors:
           type: array
           description: Field-level errors (validation only)
@@ -1577,6 +1595,13 @@ components:
       schema:
         type: string
         example: '000000004561'
+    ScreenPath:
+      name: screen
+      in: path
+      required: true
+      description: The screen, in kebab-case (unknown screen returns 400)
+      schema:
+        $ref: '#/components/schemas/Screen'
     AttributeTypePath:
       name: type
       in: path
