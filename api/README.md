@@ -15,6 +15,8 @@ The whole API is one file: [`openapi.yml`](openapi.yml). Open it directly in Swa
 | 5 | `PUT /aes/{aeId}/attributes` | Update: save the full list of tagged attributes |
 | 6 | `GET /attribute-types/{type}/attributes` and `…/{attributeId}/children` | All Available, and the Required Dependency dialog |
 | 7 | `GET` / `POST` / `DELETE /saved-filters` | Up to 3 saved filters per user |
+| 8 | `GET /aes/{aeId}/history` | The AE's tagging history (audit trail) |
+| 9 | `GET /users` (outside `/attribute-tagging`) | The "Who are you?" list: id and name of every AE owner |
 
 ## How the screen uses them
 
@@ -30,7 +32,7 @@ The whole API is one file: [`openapi.yml`](openapi.yml). Open it directly in Swa
 
 ## Rules
 
-- **Who:** the UI sends `X-User-Id` (temporary, until JWT). The "Who are you?" screen uses the AE Owner options from API 1.
+- **Who:** the UI sends `X-User-Id` (temporary, until JWT). The "Who are you?" screen uses API 9 (`GET /users`).
 - **View:** anyone can view any AE, including recommendations.
 - **Edit:** only an owner holding the lock. The first owner to click Edit gets it.
 - **Lock timeout:** 15 minutes without activity. API 4 `POST` and API 5 renew it; the UI renews every 5 minutes while the user is active in edit mode.
