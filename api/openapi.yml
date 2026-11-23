@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: myAuditPlan API Spec
-  version: 7.0.0
+  title: myAuditPlan (mAP) API
+  version: 8.0.0
   description: |
-    Open API specification for myAuditPlan (mAP) - Attribute Tagging.
+    Backend for the mAP. Open API specification for myAuditPlan (mAP) - Attribute Tagging.
 
     ## The screen in one paragraph
     The user lands on Attribute Tagging and sees the Auditable Entities (AEs) they own: the
@@ -19,21 +19,27 @@ info:
     has children opens the Required Dependency dialog, where the user picks at least one child,
     level by level, until every pick has no children.
 
+    Recommendations are suggestions only. The owner accepts one by adding it (it becomes a tag only
+    after Update), changes it by picking a different value, or rejects it with a reason. Every tag,
+    removal and rejection is recorded with who, when, why and where it came from (the AE history).
+
     ## APIs
     | # | API | Used for |
     |---|---|---|
-    | 1 | `GET /attribute-tagging/filters` | Every dropdown and all its values (built) |
-    | 2 | `POST /attribute-tagging/aes/search` | The AE list for the selected filters (built) |
+    | 1 | `GET /screens/{screen}/filters` | Every dropdown and all its values (common, any screen) |
+    | 2 | `POST /screens/{screen}/aes/search` | The AE list for the selected filters (common, any screen) |
     | 3 | `GET /attribute-tagging/aes/{aeId}` | One AE: tagged and recommended, per attribute type |
     | 4 | `POST` / `DELETE /attribute-tagging/aes/{aeId}/lock` | Take or release the edit lock |
     | 5 | `PUT /attribute-tagging/aes/{aeId}/attributes` | Update: save the full list of tagged attributes |
     | 6 | `GET /attribute-tagging/attribute-types/{type}/attributes` (+ `/{attributeId}/children`) | All Available, and the Required Dependency dialog |
-    | 7 | `GET` / `POST` / `DELETE /attribute-tagging/saved-filters` | Up to 3 saved filters per user |
+    | 7 | `GET` / `POST` / `DELETE /screens/{screen}/saved-filters` | Up to 3 saved filters per user per screen (common, any screen) |
+    | 8 | `GET /attribute-tagging/aes/{aeId}/history` | The AE's tagging history (audit trail) |
+    | 9 | `GET /users` | The "Who are you?" list: every AE owner with id and name |
 
     ## Who is the caller
     - For now the UI sends the user's id in the `X-User-Id` header on every call. The user picks
-      themselves on a "Who are you?" screen built from the AE Owner options of API 1.
-      It is not secure: development and demos only.
+      themselves on a "Who are you?" screen built from API 9 (`GET /users`), which gives the id
+      and name of every AE owner. It is not secure: development and demos only.
     - Later a JWT bearer token replaces the header. No endpoint changes.
     - The user is never a query parameter or a body field.
 
@@ -48,11 +54,17 @@ info:
     - Update keeps the lock, so the user can save more than once. Done, Cancel or opening another
       AE releases it (API 4 DELETE). With unsaved changes the UI warns first.
 
-    ## Filters (the same pattern on every screen)
-    Every screen has `GET /<screen>/filters` → `{ screen, filters: [{ type, options: [text, ...] }] }`,
-    `POST /<screen>/aes/search` with `{ screen, filters: { <type>: [text, ...] } }`, and `/<screen>/saved-filters`.
+    ## Common screen APIs (filters, search, saved filters)
+    Filters, AE search and saved filters are the same APIs for every screen. The UI puts the screen in
+    the URL, and the backend uses it to pick the screen's list of dropdowns:
+    - `GET /screens/{screen}/filters` → `{ screen, filters: [{ type, options: [text, ...] }] }`
+    - `POST /screens/{screen}/aes/search` with `{ filters: { <type>: [text, ...] } }`
+    - `GET` / `POST /screens/{screen}/saved-filters`, `DELETE /screens/{screen}/saved-filters/{id}`
+    `{screen}` is the screen's key in kebab-case (`attribute-tagging`); an unknown screen returns 400.
     The shapes are shared (components/schemas); only the list of dropdowns differs per screen.
-    `screen` is the screen's key (`attributeTagging`); the backend uses it to pick the screen's list of dropdowns.
+    APIs that only one screen has (AE detail, lock, update, attribute types, history) stay under that
+    screen's own path (`/attribute-tagging/...`).
+    Adding a screen: add its key to `Screen`, its `<Screen>FilterType` enum, and its dropdowns in the backend.
 
     Every dropdown is a plain list of values. AE ID, AE Name, AE Owner (preselected), Business Area
     and Business Division come from the AE table; the other 11 are the attribute types, all from the
@@ -64,25 +76,51 @@ info:
     - Paging is 1-based (`page=1` is the first page), `pageSize` 1-100, default 20.
     - Lists are sorted as each operation says, always with a stable tiebreaker (the id).
     - Dates are UTC ISO-8601 (`2026-11-19T12:02:00Z`). Ids are strings (AE ids keep leading zeros).
-    - Every error is an RFC 7807 `ProblemDetail` (`application/problem+json`); field errors are in `errors[]`.
+    - Every error is an `ApiError` (`application/json`): `status`, `title`, `detail`, `instance`; field errors are in `errors[]`.
     - Breaking changes bump the major `info.version` and are agreed with the UI first.
+
+    ## Changes in 8.0.0 (breaking)
+    - Filters, AE search and saved filters are common to every screen and take the screen in the URL:
+      `/attribute-tagging/filters` → `/screens/{screen}/filters`, and the same for `aes/search` and
+      `saved-filters`. operationIds are unchanged.
+    - `screen` is removed from the search body (it is in the URL). `Screen` values are kebab-case
+      (`attribute-tagging`), the same as in the URL; `FilterResponse.screen` echoes it.
+    - Saved filters are per user and per screen (up to 3 per screen).
+
+    ## Changes in 7.1.0 (all additive, nothing breaking)
+    - API 8 `getAEHistory` and API 9 `getUsers` added.
+    - Update (API 5) takes an optional `rejected` list to reject recommendations with a reason.
+    - Tagged attributes have `source` and `expired`; recommendations have `source` and `confidence`.
+    - Examples added for every response that had none; missing 400 responses added.
+    - Errors are `ApiError` (`application/json`), as the backend returns them, instead of `ProblemDetail`.
   license:
     name: Proprietary
 servers:
+  - url: http://localhost:8080/api/v1
+    description: Local (spec paths start after /api/v1)
   - url: https://myAuditPlan/api/v1
+    description: Deployed
 security:
   - devUserHeader: []
   - bearerAuth: []
 tags:
   - name: Attribute Tagging
-    description: Attribute Tagging screen - filters, AE list and detail, edit lock, tagging, saved filters
+    description: Find Auditable Entities and tag attributes to them
+  - name: Screens
+    description: Common to every screen - filters, AE search and saved filters, with the screen in the URL
+  - name: Users
+    description: Shared by every screen - who the users are
 paths:
-  /attribute-tagging/filters:
+  /screens/{screen}/filters:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     get:
       tags:
-        - Attribute Tagging
-      summary: 1. All dropdowns and their values
+        - Screens
+      summary: Get filter dropdowns
       description: |
+        Every dropdown of the screen in the URL, in screen order, each with all its values as
+        plain text. Same for every user.
         The screen and every dropdown in screen order as { type, options }, where options is a plain
         list of text, sorted, without duplicates. 5 come from the AE table; the other 11 are the
         attribute types, each with every active value of that type (2,000+ each). A dropdown with no
@@ -92,13 +130,13 @@ paths:
       operationId: getFilters
       responses:
         '200':
-          description: The screen and its dropdowns in screen order
+          description: Dropdowns and their values
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/FilterResponse'
               example:
-                screen: attributeTagging
+                screen: attribute-tagging
                 filters:
                   - type: aeId
                     options:
@@ -127,16 +165,20 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
-  /attribute-tagging/aes/search:
+  /screens/{screen}/aes/search:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     post:
       tags:
-        - Attribute Tagging
-      summary: 2. AE list for the selected filters
+        - Screens
+      summary: Search Auditable Entities
       description: |
-        The server applies the filters and returns one page of active AEs, sorted by AE name then AE id.
+        Active AEs matching the selected filters, sorted by AE name (then AE id).
+        OR within a dropdown, AND across dropdowns. Empty filters return all AEs.
         The screen opens with filters = { aeOwner: [the user's name] }. {} returns all AEs.
         Values are the same text as in the filters options. A filter type the screen doesn't have,
-        an unknown screen, or paging out of range returns 400.
+        an unknown screen, or paging out of range returns 400. The cards are the screen's own (for
+        Attribute Tagging: AEResponse).
       operationId: searchAEs
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -151,14 +193,12 @@ paths:
               screenOpens:
                 summary: Screen opens - my AEs
                 value:
-                  screen: attributeTagging
                   filters:
                     aeOwner:
                       - John Smith
               filtered:
                 summary: User picked more filters
                 value:
-                  screen: attributeTagging
                   filters:
                     aeOwner:
                       - John Smith
@@ -172,7 +212,6 @@ paths:
               allAes:
                 summary: No filters - all AEs
                 value:
-                  screen: attributeTagging
                   filters: {}
       responses:
         '200':
@@ -207,11 +246,14 @@ paths:
     get:
       tags:
         - Attribute Tagging
-      summary: 3. One AE with its 11 attribute types - tagged and recommended
+      summary: Get an Auditable Entity
       description: |
         Anyone can view, including the recommendations. canEdit is true only for the owner who
         holds the lock; everyone else sees the sections read-only.
         All Available is not included: it is the same for every AE (API 6).
+        Recommendations the owner rejected are not in recommended. A tagged attribute that the daily
+        refresh has expired in its source system stays tagged with expired = true, so the UI can warn;
+        the owner removes it or keeps it.
       operationId: getAE
       parameters:
         - $ref: '#/components/parameters/AeId'
@@ -263,6 +305,8 @@ paths:
                           - Example Bank UK
                         comment: UK booking entity for this fund
                         status: ACTIVE
+                        source: MANUAL
+                        expired: false
                         taggedBy:
                           id: '12345'
                           name: John Smith
@@ -274,6 +318,8 @@ paths:
                         parentId: null
                         hasChildren: true
                         reason: Used by 3 AEs in the same business area
+                        source: RULE
+                        confidence: null
                   - type: est
                     label: Est
                     recommendationCount: 0
@@ -291,7 +337,7 @@ paths:
     post:
       tags:
         - Attribute Tagging
-      summary: 4a. Take or renew the edit lock (Edit button)
+      summary: Take or renew the edit lock
       description: |
         - An owner and nobody else holds the lock (or it expired) -> the caller gets it.
         - The caller already holds it -> renewed for another 15 minutes. The UI calls this every
@@ -306,6 +352,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Lock'
+              example:
+                lockedBy:
+                  id: '12345'
+                  name: John Smith
+                lockedOn: '2026-11-19T12:02:00Z'
+                expiresAt: '2026-11-19T12:17:00Z'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
@@ -319,7 +371,7 @@ paths:
     delete:
       tags:
         - Attribute Tagging
-      summary: 4b. Release the edit lock (Done, Cancel, or opening another AE)
+      summary: Release the edit lock
       description: |
         Releases the lock if the caller holds it. Does nothing if they don't (it may have expired).
         Unsaved changes are discarded; the UI warns before calling this.
@@ -337,14 +389,19 @@ paths:
     put:
       tags:
         - Attribute Tagging
-      summary: 5. Update - save the full list of tagged attributes
+      summary: Update tagged attributes
       description: |
         Send every attribute that should be tagged after the save, across all 11 types.
         - In the list, not tagged yet -> added, status ACTIVE (comment required).
         - Tagged now, missing from the list -> removed (stored as INACTIVE).
         - In the list and already tagged -> kept; a changed comment is saved.
+        - In rejected -> a recommendation the owner turns down, with a reason. It leaves Suggested
+          to Add for this AE and is recorded in the history. An attribute can't be in both lists (400).
         The caller must hold the lock (an expired lock that nobody else took is renewed).
-        Every item must be an attribute without children (400 otherwise).
+        Every item must be an attribute without children (400 otherwise). Adding an attribute that is
+        expired in its source system returns 400; one that is already tagged and expired can be kept.
+        Each saved change is written to the AE history (API 8). An added attribute that was in
+        Suggested to Add is stored with source RECOMMENDATION, any other with MANUAL.
         After saving, the recommendation rules run again for this AE, because the new tags can
         change what is recommended. The response therefore has fresh recommended lists and counts.
         The lock is kept, so the user can update again.
@@ -368,6 +425,10 @@ paths:
                 - attributeId: APP-221
                   attributeType: application
                   comment: Core ledger for this fund
+              rejected:
+                - attributeId: LE-FR
+                  attributeType: legalEntity
+                  reason: The fund has no French operations
       responses:
         '200':
           description: Saved. Returns the AE as API 3 does, with the new tagged lists and the recomputed recommendations.
@@ -375,8 +436,94 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AEDetailResponse'
+              example:
+                aeId: '000000004561'
+                aeName: State Street IM Systematic Equity
+                aeDescription: Performs fund accounting services
+                businessArea: Corporate Divisions - Enterprise Risk Management
+                businessDivision: Corporate Divisions
+                aeOwners:
+                  - id: '12345'
+                    name: John Smith
+                isOwner: true
+                lock:
+                  lockedBy:
+                    id: '12345'
+                    name: John Smith
+                  lockedOn: '2026-11-19T12:02:00Z'
+                  expiresAt: '2026-11-19T12:24:00Z'
+                canEdit: true
+                modifiedOn: '2026-11-19T12:09:00Z'
+                modifiedBy:
+                  id: '12345'
+                  name: John Smith
+                recommendationCount: 45
+                attributeTypes:
+                  - type: legalEntity
+                    label: Key Legal Entities
+                    recommendationCount: 44
+                    tagged:
+                      - attributeId: LE-DE-02
+                        attributeType: legalEntity
+                        name: Example Bank Germany Custody GmbH
+                        parentId: LE-DE
+                        hasChildren: false
+                        path:
+                          - Example Bank Germany
+                        comment: Picked as a child of Example Bank Germany (recommended)
+                        status: ACTIVE
+                        source: RECOMMENDATION
+                        expired: false
+                        taggedBy:
+                          id: '12345'
+                          name: John Smith
+                        taggedOn: '2026-11-19T12:09:00Z'
+                    recommended: []
+                  - type: application
+                    label: Key Applications
+                    recommendationCount: 1
+                    tagged:
+                      - attributeId: APP-221
+                        attributeType: application
+                        name: Core Ledger
+                        parentId: null
+                        hasChildren: false
+                        path: []
+                        comment: Core ledger for this fund
+                        status: ACTIVE
+                        source: MANUAL
+                        expired: false
+                        taggedBy:
+                          id: '12345'
+                          name: John Smith
+                        taggedOn: '2026-11-19T12:09:00Z'
+                    recommended:
+                      - attributeId: APP-305
+                        attributeType: application
+                        name: Fund Pricing Engine
+                        parentId: null
+                        hasChildren: false
+                        reason: AE description mentions daily fund pricing
+                        source: AI
+                        confidence: 0.82
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: |
+            Invalid update: a new attribute without a comment, an attribute with children, an unknown or
+            expired attribute, an attribute both tagged and rejected, or a rejection without a reason.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                status: 400
+                title: Bad Request
+                detail: Invalid request
+                instance: /api/v1/attribute-tagging/aes/000000004561/attributes
+                errors:
+                  - field: attributes[1].comment
+                    message: A comment is required when tagging a new attribute
+                  - field: attributes[2].attributeId
+                    message: APP-198 is expired in its source system and can't be added
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
@@ -391,7 +538,7 @@ paths:
     get:
       tags:
         - Attribute Tagging
-      summary: 6a. All Available - the top-level attributes of one type
+      summary: Get available attributes
       description: |
         Every top-level active attribute of the type (parentId = null). For types
         without a hierarchy that is every attribute; expect 2,000+ per type. The same for every AE, so
@@ -430,7 +577,7 @@ paths:
     get:
       tags:
         - Attribute Tagging
-      summary: 6b. Children of one attribute (Required Dependency dialog)
+      summary: Get child attributes
       description: |
         Called when the user adds an attribute that has children. The dialog lists these; the user
         must pick at least one. A picked child that also has children is opened the same way, until
@@ -438,12 +585,7 @@ paths:
       operationId: getAttributeChildren
       parameters:
         - $ref: '#/components/parameters/AttributeTypePath'
-        - name: attributeId
-          in: path
-          required: true
-          schema:
-            type: string
-            example: LE-DE
+        - $ref: '#/components/parameters/AttributeId'
       responses:
         '200':
           description: Direct children, sorted by name
@@ -464,17 +606,108 @@ paths:
                   name: Example Bank Germany Custody GmbH
                   parentId: LE-DE
                   hasChildren: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          description: No attribute with this id in this type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                status: 404
+                title: Not Found
+                detail: Attribute LE-XX of type legalEntity not found
+  /attribute-tagging/aes/{aeId}/history:
+    get:
+      tags:
+        - Attribute Tagging
+      summary: Get tagging history
+      description: |
+        Every tagging decision on the AE, newest first (then by entry id): attributes added and
+        removed, comments changed, recommendations rejected, and the history migrated from the legacy
+        system. Each entry says who, when, why (comment or reason) and where it came from.
+        Anyone who can view the AE can read it. Optionally narrowed to one attribute type.
+      operationId: getAEHistory
+      parameters:
+        - $ref: '#/components/parameters/AeId'
+        - name: attributeType
+          in: query
+          required: false
+          description: Only entries of this attribute type
+          schema:
+            $ref: '#/components/schemas/AttributeType'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of history entries (empty items if none)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeHistoryPagedResponse'
+              example:
+                page: 1
+                pageSize: 20
+                totalRecords: 3
+                totalPages: 1
+                items:
+                  - id: '90017'
+                    action: ADDED
+                    attributeId: LE-DE-02
+                    attributeType: legalEntity
+                    attributeName: Example Bank Germany Custody GmbH
+                    comment: Picked as a child of Example Bank Germany (recommended)
+                    previousComment: null
+                    source: RECOMMENDATION
+                    changedBy:
+                      id: '12345'
+                      name: John Smith
+                    changedOn: '2026-11-19T12:09:00Z'
+                  - id: '90016'
+                    action: REJECTED
+                    attributeId: LE-FR
+                    attributeType: legalEntity
+                    attributeName: Example Bank France
+                    comment: The fund has no French operations
+                    previousComment: null
+                    source: RULE
+                    changedBy:
+                      id: '12345'
+                      name: John Smith
+                    changedOn: '2026-11-19T12:09:00Z'
+                  - id: '90002'
+                    action: REMOVED
+                    attributeId: APP-114
+                    attributeType: application
+                    attributeName: Legacy Ledger
+                    comment: Application decommissioned
+                    previousComment: Old core ledger
+                    source: MANUAL
+                    changedBy:
+                      id: '12377'
+                      name: Jane Doe
+                    changedOn: '2026-10-11T14:21:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
         '404':
           $ref: '#/components/responses/NotFound'
-  /attribute-tagging/saved-filters:
+  /screens/{screen}/saved-filters:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     get:
       tags:
-        - Attribute Tagging
-      summary: 7a. The user's saved filters (up to 3)
+        - Screens
+      summary: Get saved filters
+      description: Only the caller's own saved filters for the screen in the URL.
       operationId: getSavedFilters
       responses:
         '200':
@@ -486,15 +719,32 @@ paths:
                 maxItems: 3
                 items:
                   $ref: '#/components/schemas/SavedFilter'
+              example:
+                - id: 42
+                  name: ERM division
+                  filters:
+                    businessDivision:
+                      - Corporate Divisions
+                  createdOn: '2026-11-18T09:30:00Z'
+                - id: 37
+                  name: UK entities
+                  filters:
+                    aeOwner:
+                      - John Smith
+                    legalEntity:
+                      - Example Bank UK Ltd
+                  createdOn: '2026-11-02T16:05:00Z'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
     post:
       tags:
-        - Attribute Tagging
-      summary: 7b. Save the current filters
-      description: At most 3 per user. A 4th returns 409; the user deletes one first.
+        - Screens
+      summary: Save the current filters
+      description: |
+        At most 3 per user per screen. A 4th returns 409; the user deletes one first. Names are unique
+        per user and screen (409 otherwise). The filters follow the same rules as API 2: an unknown filter type returns 400.
       operationId: createSavedFilter
       requestBody:
         required: true
@@ -514,6 +764,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SavedFilter'
+              example:
+                id: 43
+                name: ERM division
+                filters:
+                  businessDivision:
+                    - Corporate Divisions
+                createdOn: '2026-11-19T12:30:00Z'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -523,35 +780,79 @@ paths:
         '409':
           description: The user already has 3 saved filters, or the name is already used
           content:
-            application/problem+json:
+            application/json:
               schema:
-                $ref: '#/components/schemas/ProblemDetail'
+                $ref: '#/components/schemas/ApiError'
               example:
                 status: 409
                 title: Conflict
                 detail: You can save up to 3 filters. Delete one first.
-  /attribute-tagging/saved-filters/{id}:
+  /screens/{screen}/saved-filters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ScreenPath'
     delete:
       tags:
-        - Attribute Tagging
-      summary: 7c. Delete a saved filter
+        - Screens
+      summary: Delete a saved filter
+      description: Only the caller's own, on this screen. Another user's or another screen's id returns 404, the same as an id that doesn't exist.
       operationId: deleteSavedFilter
       parameters:
         - name: id
           in: path
           required: true
+          description: Saved filter id
           schema:
             type: integer
             format: int64
+            example: 42
       responses:
         '204':
           description: Deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No saved filter with this id for the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                status: 404
+                title: Not Found
+                detail: Saved filter 42 not found
+  /users:
+    get:
+      tags:
+        - Users
+      summary: Get users
+      description: |
+        Every user who owns at least one active AE, as { id, name }, sorted by name then id. The UI
+        shows the names and sends the picked id as X-User-Id. Needs no X-User-Id itself, because the
+        user is not known yet. Goes away when JWT sign-in replaces the header.
+      operationId: getUsers
+      security: []
+      responses:
+        '200':
+          description: Users, sorted by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Person'
+              example:
+                - id: '12377'
+                  name: Jane Doe
+                - id: '12345'
+                  name: John Smith
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   securitySchemes:
     devUserHeader:
@@ -567,10 +868,10 @@ components:
   schemas:
     Screen:
       type: string
-      description: Screen key. Picks the screen's list of dropdowns on the backend.
+      description: Screen key, in kebab-case, as in the URL. Picks the screen's list of dropdowns on the backend.
       enum:
-        - attributeTagging
-      example: attributeTagging
+        - attribute-tagging
+      example: attribute-tagging
     FilterOption:
       type: object
       description: |
@@ -595,7 +896,7 @@ components:
             - Example Bank US Inc
     FilterResponse:
       type: object
-      description: A screen's dropdowns, in screen order
+      description: A screen's dropdowns, in screen order. screen echoes the screen in the URL.
       required:
         - screen
         - filters
@@ -608,12 +909,8 @@ components:
             $ref: '#/components/schemas/FilterOption'
     FilterRequest:
       type: object
-      description: The search request - the screen and the selected values
-      required:
-        - screen
+      description: The search request - the selected values. The screen is in the URL.
       properties:
-        screen:
-          $ref: '#/components/schemas/Screen'
         filters:
           $ref: '#/components/schemas/Filters'
     AttributeTaggingFilterType:
@@ -643,9 +940,11 @@ components:
         - costCenter
         - location
         - product
-    ProblemDetail:
+    ApiError:
       type: object
-      description: RFC 7807 problem detail (Spring ProblemDetail), content type application/problem+json
+      description: |
+        Every error response, as the backend returns it today (ApiError, application/json).
+        Fields follow the RFC 7807 names. Confirm against the ApiError class in aur_map_api_svc.
       required:
         - status
         - title
@@ -667,7 +966,7 @@ components:
         instance:
           type: string
           description: The request path
-          example: /api/v1/attribute-tagging/aes/search
+          example: /api/v1/screens/attribute-tagging/aes/search
         errors:
           type: array
           description: Field-level errors (validation only)
@@ -868,6 +1167,8 @@ components:
         - type: object
           required:
             - status
+            - source
+            - expired
           properties:
             path:
               type: array
@@ -886,6 +1187,14 @@ components:
               type: string
               enum:
                 - ACTIVE
+            source:
+              $ref: '#/components/schemas/TagSource'
+            expired:
+              type: boolean
+              description: |
+                true = the daily refresh expired this attribute in its source system. It stays tagged until
+                the owner removes it; the UI shows a warning. It can't be newly added while expired.
+              example: false
             taggedBy:
               $ref: '#/components/schemas/Person'
             taggedOn:
@@ -896,15 +1205,50 @@ components:
       description: |
         An attribute the recommendation rules suggest ("Suggested to Add"), not tagged yet. It can have
         children; then adding it opens the Required Dependency dialog. Everyone sees recommendations;
-        only the owner holding the lock can add one. The rules run again after every Update.
+        only the owner holding the lock can add or reject one. The rules run again after every Update.
+        A recommendation is never a tag by itself: it becomes one only when the owner adds it and clicks Update.
       allOf:
         - $ref: '#/components/schemas/Attribute'
         - type: object
+          required:
+            - source
           properties:
             reason:
               type: string
-              description: Why the rules recommend it
+              description: Why it is recommended (the evidence shown to the user)
               example: Used by 3 AEs in the same business area
+            source:
+              $ref: '#/components/schemas/RecommendationSource'
+            confidence:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+              nullable: true
+              description: How sure the AI is, 0 to 1. null for RULE recommendations.
+              example: 0.82
+    TagSource:
+      type: string
+      description: |
+        Where a tag came from.
+        - MANUAL - the owner picked it from All Available (or a child in the Required Dependency dialog of one).
+        - RECOMMENDATION - the owner accepted it from Suggested to Add (or a child of one).
+        - MIGRATED - loaded from the legacy audit system.
+      enum:
+        - MANUAL
+        - RECOMMENDATION
+        - MIGRATED
+      example: MANUAL
+    RecommendationSource:
+      type: string
+      description: |
+        What produced a recommendation.
+        - RULE - the recommendation rules (for example, what similar AEs have tagged).
+        - AI - the AI model, from the AE description and source data.
+      enum:
+        - RULE
+        - AI
+      example: RULE
     AttributeTypeGroup:
       type: object
       description: |
@@ -1020,6 +1364,7 @@ components:
         Attributes not in the list are removed (stored as INACTIVE). New ones are stored as ACTIVE.
         Every item must be an attribute without children. Name, description and parent are not sent:
         the server takes them from the attribute itself.
+        rejected (optional) lists the recommendations the owner turns down in this save.
       required:
         - attributes
       properties:
@@ -1027,6 +1372,110 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AttributeChange'
+        rejected:
+          type: array
+          description: Recommendations rejected in this save. Each must be in Suggested to Add now.
+          items:
+            $ref: '#/components/schemas/RejectedRecommendation'
+    RejectedRecommendation:
+      type: object
+      description: A recommendation the owner rejects. It leaves Suggested to Add for this AE and is kept in the history.
+      required:
+        - attributeId
+        - attributeType
+        - reason
+      properties:
+        attributeId:
+          type: string
+          example: LE-FR
+        attributeType:
+          $ref: '#/components/schemas/AttributeType'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Why it is rejected
+          example: The fund has no French operations
+    HistoryAction:
+      type: string
+      description: |
+        What happened.
+        - ADDED - tagged (status ACTIVE).
+        - REMOVED - untagged (stored as INACTIVE).
+        - COMMENT_CHANGED - still tagged; the comment changed.
+        - REJECTED - a recommendation was rejected.
+      enum:
+        - ADDED
+        - REMOVED
+        - COMMENT_CHANGED
+        - REJECTED
+      example: ADDED
+    AttributeHistoryEntry:
+      type: object
+      description: One tagging decision on the AE
+      required:
+        - id
+        - action
+        - attributeId
+        - attributeType
+        - attributeName
+        - source
+        - changedBy
+        - changedOn
+      properties:
+        id:
+          type: string
+          example: '90017'
+        action:
+          $ref: '#/components/schemas/HistoryAction'
+        attributeId:
+          type: string
+          example: LE-DE-02
+        attributeType:
+          $ref: '#/components/schemas/AttributeType'
+        attributeName:
+          type: string
+          description: The attribute's name at the time of the change
+          example: Example Bank Germany Custody GmbH
+        comment:
+          type: string
+          nullable: true
+          description: The comment after the change, or the reason for a rejection or removal
+          example: Picked as a child of Example Bank Germany (recommended)
+        previousComment:
+          type: string
+          nullable: true
+          description: The comment before the change (COMMENT_CHANGED and REMOVED); null otherwise
+          example: null
+        source:
+          description: |
+            TagSource for ADDED, REMOVED and COMMENT_CHANGED (where the tag came from);
+            RecommendationSource for REJECTED (what made the rejected recommendation).
+          type: string
+          enum:
+            - MANUAL
+            - RECOMMENDATION
+            - MIGRATED
+            - RULE
+            - AI
+          example: RECOMMENDATION
+        changedBy:
+          $ref: '#/components/schemas/Person'
+        changedOn:
+          type: string
+          format: date-time
+          example: '2026-11-19T12:09:00Z'
+    AttributeHistoryPagedResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AttributeHistoryEntry'
     SavedFilterRequest:
       type: object
       required:
@@ -1058,9 +1507,9 @@ components:
     Unauthorized:
       description: No user identified (missing or unknown X-User-Id; later a missing or expired token)
       content:
-        application/problem+json:
+        application/json:
           schema:
-            $ref: '#/components/schemas/ProblemDetail'
+            $ref: '#/components/schemas/ApiError'
           example:
             status: 401
             title: Unauthorized
@@ -1068,9 +1517,9 @@ components:
     BadRequest:
       description: Invalid request (unknown screen or filter key, page below 1, pageSize over 100, missing comment on a new attribute ...)
       content:
-        application/problem+json:
+        application/json:
           schema:
-            $ref: '#/components/schemas/ProblemDetail'
+            $ref: '#/components/schemas/ApiError'
           example:
             status: 400
             title: Bad Request
@@ -1081,9 +1530,9 @@ components:
     NotFound:
       description: Not found
       content:
-        application/problem+json:
+        application/json:
           schema:
-            $ref: '#/components/schemas/ProblemDetail'
+            $ref: '#/components/schemas/ApiError'
           example:
             status: 404
             title: Not Found
@@ -1091,9 +1540,9 @@ components:
     NotOwner:
       description: The caller is not an owner of this AE, so cannot edit it
       content:
-        application/problem+json:
+        application/json:
           schema:
-            $ref: '#/components/schemas/ProblemDetail'
+            $ref: '#/components/schemas/ApiError'
           example:
             status: 403
             title: Forbidden
@@ -1101,19 +1550,19 @@ components:
     Locked:
       description: Another owner holds the edit lock
       content:
-        application/problem+json:
+        application/json:
           schema:
-            $ref: '#/components/schemas/ProblemDetail'
+            $ref: '#/components/schemas/ApiError'
           example:
             status: 409
             title: Conflict
             detail: Auditable Entity 000000004561 is being edited by Jane Doe
     InternalError:
-      description: Unexpected server error. The detail is generic; the cause is in the server log.
+      description: Unexpected error. The detail is generic; the cause is in the server log.
       content:
-        application/problem+json:
+        application/json:
           schema:
-            $ref: '#/components/schemas/ProblemDetail'
+            $ref: '#/components/schemas/ApiError'
           example:
             status: 500
             title: Internal Server Error
@@ -1146,9 +1595,25 @@ components:
       schema:
         type: string
         example: '000000004561'
+    ScreenPath:
+      name: screen
+      in: path
+      required: true
+      description: The screen, in kebab-case (unknown screen returns 400)
+      schema:
+        $ref: '#/components/schemas/Screen'
     AttributeTypePath:
       name: type
       in: path
       required: true
+      description: Attribute type (unknown type returns 400)
       schema:
         $ref: '#/components/schemas/AttributeType'
+    AttributeId:
+      name: attributeId
+      in: path
+      required: true
+      description: Attribute id, within the type
+      schema:
+        type: string
+        example: LE-DE
