@@ -1,6 +1,6 @@
 # Backend code: Attribute Tagging, APIs 1 and 2
 
-DTOs and the DAO layer for the first two APIs, to copy into `aur_map_api_svc` (`com.ss.corp.map.api`).
+DTOs, DAO and services for the first two APIs, to copy into `aur_map_api_svc` (`com.ss.corp.map.api`).
 Java 21, Spring Boot 3.2+ (Hibernate 6.4+), Spring Data JPA, PostgreSQL.
 
 - API 1: `GET /attribute-tagging/filters` → `FilterResponse`
@@ -12,15 +12,18 @@ Java 21, Spring Boot 3.2+ (Hibernate 6.4+), Spring Data JPA, PostgreSQL.
 |---|---|---|
 | `model` | `FilterRequest` | Search body `{ screen, filters: { <type>: [text] } }` (also what a saved filter stores) |
 | `model` | `FilterResponse`, `FilterOption` | `{ screen, filters: [{ type, options: [text] }] }` |
-| `model` | `AEResponse` | One AE card |
+| `model` | `AEResponse` | One AE card; `from(entity, user)` converts (no mapper class) |
 | `model` | `PagedResponse<T>` | `{ page, pageSize, totalRecords, totalPages, items }`, pages from 1 |
 | `model` | `Person` | `{ id, name }` (id = name until real user ids exist) |
 | `entity` | `AuditableEntity` | `aur_map_app.auditable_entity` |
 | `entity` | `AuditableEntityAttribute` | `aur_map_app.auditable_entity_attributes` |
-| `enums` | `FilterSource` | AE column, AE owner array, or attribute type |
-| `filter` | `FilterDefinition` | One dropdown: type, source, entity field |
-| `filter` | `AttributeTaggingFilters` | The screen's 16 dropdowns in order; unknown type → 400 |
-| `filter` | `AESpecificationBuilder` | Filters → JPA `Specification` (OR within a type, AND across) |
+| `enums` | `ScreenFilter` | Interface every screen's filter enum implements (`getKey()`) |
+| `enums` | `AttributeTaggingFilter` | The screen's 16 dropdown keys, in screen order |
+| `enums` | `Screen` | Screen name → its filter enum; unknown screen → 400 |
+| `service` | `FilterService` / `impl.FilterServiceImpl` | API 1: loops the screen's enum, runs one query per dropdown |
+| `service` | `AEService` / `impl.AEServiceImpl` | API 2: filters → JPA `Specification` (OR within a dropdown, AND across), paged |
+| `controller` | `AttributeTaggingController` | APIs 1 and 2 with Swagger (springdoc) annotations; paging checked with `@Min`/`@Max` |
+| `config` | `OpenApiConfig` | Swagger UI title and version |
 | `repository` | `AuditableEntityRepository` | Spring Data JPA + Specification; dropdown value queries |
 | `repository` | `AuditableEntityAttributeRepository` | Tags of an AE; attribute dropdown values |
 | `exception` | `ValidationException` | 400 with field and message |
@@ -49,6 +52,10 @@ Replace `<unique on …>` with the real constraint names (`\d aur_map_app.audita
 ## Notes
 
 - **Not compiled here.** Expect small fixes (imports, Lombok) when you add the files to the project.
-- **Owner filter:** `AESpecificationBuilder` uses Hibernate's `collectionOverlaps` (`ae_owner && values`). Test it first; if your Hibernate version doesn't translate it, filter owners with native SQL instead.
-- **Next:** the mapper (`AuditableEntity` → `AEResponse`), `FilterService`, the search service and the controller.
+- **Owner filter:** `AEServiceImpl` uses `array_position(ae_owner, owner) IS NOT NULL` (OR per owner), which works on any Hibernate 6.
+- **Swagger:** needs `org.springdoc:springdoc-openapi-starter-webmvc-ui` (2.6.x for Boot 3.3, 2.8.x for Boot 3.4/3.5).
+- **Current user** comes from the `X-User-Id` header for now; switch to `RequestDetailsHolder` once the request-context filter exists.
+- **No cache yet** on `getFilters` (waiting on infra). Add `@Cacheable(cacheNames = "filters", key = "#screen")` + `@EnableCaching` later.
+- **Screen name** is `attributeTagging`; the UI must send exactly that.
+- **Next:** `GlobalExceptionHandler` + `MapException` family, `LoggerService`, request-context filter (see `plan.md`).
 - `api/openapi.yml` doesn't have `screen` in the filters response and search body yet; update it to match these DTOs.
