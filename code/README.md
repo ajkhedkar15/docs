@@ -11,12 +11,13 @@ Java 21, Spring Boot 3.2+ (Hibernate 6.4+), Spring Data JPA, PostgreSQL 13+.
   a key, a source (`AE` / `ATTRIBUTE_TYPE`) and a group (`BASIC` / `ADVANCED`).
 - **Filters:** `FilterServiceImpl` loops over the screen's options. AE options go to `AEService` and attribute
   types go to the matching `AttributeOptionRepository` child, picked by key from a map built at startup.
-- **Search:** `AEServiceImpl.search` checks the keys (`requireKnownFilters`, 400) and runs
-  `AESearchSpecification`, sorted by AE name then AE id. The specification routes each key by its source the
-  same way: an AE key is a column `in (...)`, and an attribute type is `exists` an active tag of that type with
-  one of the names. OR within a filter, AND across filters, and empty filters return all active AEs.
+- **Search:** `AEServiceImpl.search` checks the keys (`requireKnownFilters`, 400), then loops over the request's
+  filters and routes each by its source, the same way: `aeCondition` (a column `in (...)`) or
+  `attributeCondition` (an active tag of that type with one of the names). The conditions are AND'ed, values
+  inside one filter are OR'ed, and empty filters return all active AEs. Sorted by AE name then AE id.
+  `AESpecifications` holds the small condition builders.
 - Adding a screen: one `Screen` constant and one option enum. Adding a filter: one enum line, plus one case in
-  `FilterServiceImpl.aeOptions` and `AESearchSpecification.aeColumn` if it's an AE column.
+  `FilterServiceImpl.aeOptions` and `AEServiceImpl.aeCondition` if it's an AE column.
 
 ## Attribute types: EST only for now
 Each attribute type has its own master table, with its own columns, and some have parent/child levels, so
@@ -43,7 +44,7 @@ Search needs no change: it matches tags in `auditable_entity_attributes` by `att
 | `entity` | `AuditableEntity`, `AuditableEntityAttribute` | `aur_map_app.auditable_entity` and its tags |
 | `entity` | `EstMaster` | `est_master`, read-only: the EST dropdown values |
 | `repository` | `AuditableEntityRepository` | Spring Data JPA + Specification; AE dropdown value queries |
-| `repository` | `AESearchSpecification` | Selected filters to a JPA `Specification` |
+| `repository` | `AESpecifications` | Search conditions: `isActive`, `fieldIn`, `ownerIn`, `hasTag` |
 | `repository` | `AttributeOptionRepository` | `@NoRepositoryBean` parent of the attribute repos: `type()`, `findOptions()` |
 | `repository` | `EstMasterRepository` | Child for EST: `type()` = `est`, distinct EST names |
 | `service` | `FilterService`, `AEService` (+ `impl`) | See above |
