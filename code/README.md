@@ -1,29 +1,43 @@
-# Backend code: Attribute Tagging, APIs 1 and 2
+# Backend code: filters and AE search (common screen APIs)
 
-DTOs and the DAO layer for the first two APIs, to copy into `aur_map_api_svc` (`com.ss.corp.map.api`).
-Java 21, Spring Boot 3.2+ (Hibernate 6.4+), Spring Data JPA, PostgreSQL.
+Code to copy into `aur_map_api_svc` (`com.ss.corp.map.api`).
+Java 21, Spring Boot 3.2+ (Hibernate 6.4+), Spring Data JPA, PostgreSQL 13+.
 
-- API 1: `GET /attribute-tagging/filters` → `FilterResponse`
-- API 2: `POST /attribute-tagging/aes/search` with `FilterRequest` → `PagedResponse<AEResponse>`
+- API 1: `GET /screens/{screen}/filters?group=basic|advanced` returns `FilterResponse`
+- API 2: `POST /screens/{screen}/aes/search` takes `FilterRequest` and returns `PagedResponse<AEResponse>`
+
+## How it fits together
+- `Screen` lists every screen. Each screen has one option enum (`AttributeTaggingOption`), and every option has
+  a key, a source (`AE` / `ATTRIBUTE_TYPE`) and a group (`BASIC` / `ADVANCED`).
+- **Filters:** `FilterServiceImpl` loops over the screen's options. AE options go to `AEService` and attribute
+  types go to `AttributeService`. The service never calls a repository directly.
+- **Search:** `AEServiceImpl.search` checks the keys (`requireKnownFilters`, 400) and runs
+  `AESearchSpecification`, sorted by AE name then AE id. The specification routes each key by its source the
+  same way: an AE key is a column `in (...)`, and an attribute type is `exists` an active tag of that type with
+  one of the names. OR within a filter, AND across filters, and empty filters return all active AEs.
+- Adding a screen: one `Screen` constant and one option enum. Adding a filter: one enum line, plus one case in
+  `FilterServiceImpl.aeOptions` and `AESearchSpecification.aeColumn` if it's an AE column.
 
 ## Files
-
 | Package | Class | What it is |
 |---|---|---|
-| `model` | `FilterRequest` | Search body `{ screen, filters: { <type>: [text] } }` (also what a saved filter stores) |
-| `model` | `FilterResponse`, `FilterOption` | `{ screen, filters: [{ type, options: [text] }] }` |
-| `model` | `AEResponse` | One AE card |
-| `model` | `PagedResponse<T>` | `{ page, pageSize, totalRecords, totalPages, items }`, pages from 1 |
-| `model` | `Person` | `{ id, name }` (id = name until real user ids exist) |
-| `entity` | `AuditableEntity` | `aur_map_app.auditable_entity` |
-| `entity` | `AuditableEntityAttribute` | `aur_map_app.auditable_entity_attributes` |
-| `enums` | `FilterSource` | AE column, AE owner array, or attribute type |
-| `filter` | `FilterDefinition` | One dropdown: type, source, entity field |
-| `filter` | `AttributeTaggingFilters` | The screen's 16 dropdowns in order; unknown type → 400 |
-| `filter` | `AESpecificationBuilder` | Filters → JPA `Specification` (OR within a type, AND across) |
-| `repository` | `AuditableEntityRepository` | Spring Data JPA + Specification; dropdown value queries |
-| `repository` | `AuditableEntityAttributeRepository` | Tags of an AE; attribute dropdown values |
-| `exception` | `ValidationException` | 400 with field and message |
+| `enums` | `Screen` | All screens; `fromKey` (400 on unknown), `findOption`, `requireKnownFilters` (400 on unknown keys) |
+| `enums` | `ScreenOption`, `AttributeTaggingOption` | A screen's dropdowns in screen order: key, source, group |
+| `enums` | `FilterGroup` | `basic` / `advanced`; `fromKey` gives 400 on unknown |
+| `model` | `FilterRequest` | Search body `{ filters: { <type>: [text] } }` (also what a saved filter stores) |
+| `model` | `FilterResponse`, `FilterOption` | `{ screen, filters: [{ type, group, options: [text] }] }` |
+| `model` | `AEResponse`, `PagedResponse<T>`, `Person` | One AE card; `{ page, pageSize, totalRecords, totalPages, items }`, pages from 1 |
+| `entity` | `AuditableEntity`, `AuditableEntityAttribute` | `aur_map_app.auditable_entity` and its tags |
+| `entity.attribute` | `AttributeEntity` + 11 `<Type>Attribute` | Read-only master list per attribute type (dropdown values) |
+| `repository` | `AuditableEntityRepository` | Spring Data JPA + Specification; AE dropdown value queries |
+| `repository` | `AESearchSpecification` | Selected filters to a JPA `Specification` |
+| `repository.attribute` | `AttributeRepository` + 11 `<Type>AttributeRepository` | One distinct-names query, shared through `#{#entityName}` |
+| `service` | `FilterService`, `AEService`, `AttributeService` (+ `impl`) | See above |
+| `exception` | `BadRequestException`, `FieldError` | 400 with `errors[{ field, message }]`, same as the app's |
+| `src/test` | `AESearchIT` | Search against PostgreSQL, 7 tests |
+
+`snippets/` holds the two controller changes: `getFilters` gets an optional `group` param, and `searchAEs` keeps
+its signature but passes `userName` to `aeService.search`.
 
 ## Database changes these entities expect
 
@@ -47,8 +61,17 @@ CREATE INDEX IF NOT EXISTS ix_ae_owner_gin ON aur_map_app.auditable_entity USING
 Replace `<unique on …>` with the real constraint names (`\d aur_map_app.auditable_entity_attributes` in psql).
 
 ## Notes
-
-- **Not compiled here.** Expect small fixes (imports, Lombok) when you add the files to the project.
-- **Owner filter:** `AESpecificationBuilder` uses Hibernate's `collectionOverlaps` (`ae_owner && values`). Test it first; if your Hibernate version doesn't translate it, filter owners with native SQL instead.
-- **Next:** the mapper (`AuditableEntity` → `AEResponse`), `FilterService`, the search service and the controller.
-- `api/openapi.yml` doesn't have `screen` in the filters response and search body yet; update it to match these DTOs.
+- **Tested:** compiled with Spring Boot 3.3.5 (Hibernate 6.5) and run against PostgreSQL 16. `AESearchIT`
+  covers empty filters, the owner array, OR within and AND across filters, attribute tags (active only),
+  paging, isOwner and 400s. It runs in a rolled-back transaction and only searches its own `TEST-AE-*` rows.
+- **Owner filter:** `ae_owner` is `text[]`. `&&` / `@>` fail because Hibernate binds the values as `varchar[]`
+  (`operator does not exist: text[] && character varying[]`; the old builder had this bug). The search uses
+  `array_position(ae_owner, ?) > 0` per picked owner instead, with the owner bound as a parameter.
+- **TODO in `AEServiceImpl.toResponse`:** `recommendationCount` is 0 and `lockedBy` is null until the
+  recommendation and lock services exist.
+- **TODO in `entity/attribute`:** the 11 table names are placeholders; check the columns in `AttributeEntity`.
+- **Response size:** `GET /filters` without a group loads all 16 dropdowns (2,000+ values per attribute type).
+  If it gets slow, add `@Cacheable` on `AttributeService.findNamesByType` (values change on the daily load).
+- Audit Team is on the screen but has no data yet, so it is left out.
+- Delete from the app (replaced by this design): `ScreenFilter`, `AeFilterCondition`, `AttributeTaggingFilter`,
+  and the old `filter/` package (`FilterDefinition`, `AttributeTaggingFilters`, `AESpecificationBuilder`) and `FilterSource`.

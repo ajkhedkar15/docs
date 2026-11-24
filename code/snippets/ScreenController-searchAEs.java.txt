@@ -1,0 +1,4 @@
+// ScreenController.searchAEs: same signature as today. Only the call changes, because the service now takes
+// the user's name (used for isOwner on each card).
+
+return aeService.search(screen, request, page, pageSize, userName);
