@@ -5,23 +5,33 @@ import com.ss.corp.map.api.model.FilterResponse;
 import com.ss.corp.map.api.enums.FilterGroup;
 import com.ss.corp.map.api.enums.Screen;
 import com.ss.corp.map.api.enums.ScreenOption;
+import com.ss.corp.map.api.repository.AttributeOptionRepository;
 import com.ss.corp.map.api.service.AEService;
-import com.ss.corp.map.api.service.AttributeService;
 import com.ss.corp.map.api.service.FilterService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class FilterServiceImpl implements FilterService {
 
     private final AEService aeService;
-    private final AttributeService attributeService;
+
+    /** attribute type key (e.g. est) -> the repository of its master table */
+    private final Map<String, AttributeOptionRepository<?, ?>> attributeRepositories;
+
+    /** Spring injects every AttributeOptionRepository; adding a type needs no change here. */
+    public FilterServiceImpl(AEService aeService, List<AttributeOptionRepository<?, ?>> attributeRepositories) {
+        this.aeService = aeService;
+        this.attributeRepositories = attributeRepositories.stream()
+                .collect(Collectors.toMap(AttributeOptionRepository::type, Function.identity()));
+    }
 
     /** group = null loads every dropdown of the screen. */
     @Override
@@ -54,8 +64,12 @@ public class FilterServiceImpl implements FilterService {
         };
     }
 
-    /** The attribute type dropdowns: est, risk, legalEntity, ... (one query per type). */
+    /** The attribute type dropdowns (est, ...): one query on that type's master table. */
     private List<String> attributeOptions(ScreenOption option) {
-        return attributeService.findNamesByType(option.key());
+        AttributeOptionRepository<?, ?> repository = attributeRepositories.get(option.key());
+        if (repository == null) {
+            throw new IllegalStateException("No repository for attribute type " + option.key());
+        }
+        return repository.findOptions();
     }
 }
