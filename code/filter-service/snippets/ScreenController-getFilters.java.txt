@@ -1,0 +1,14 @@
+// Replace getFilters in ScreenController with this. Only the new optional "group" param is added.
+// Imports: com.ss.corp.map.api.enums.FilterGroup, org.springframework.web.bind.annotation.RequestParam
+
+@Operation(operationId = "getFilters", summary = "Get filter dropdowns",
+        description = "Every dropdown of the screen, in screen order, each with all its values. "
+                + "group=basic for the dropdowns shown on load, group=advanced for the rest, omit for all.")
+@GetMapping("/filters")
+public FilterResponse getFilters(@Parameter(schema = @Schema(type = "string", example = "attribute-tagging")) @PathVariable Screen screen,
+                                 @Parameter(description = "basic or advanced; omit for all",
+                                         schema = @Schema(type = "string", allowableValues = {"basic", "advanced"}))
+                                 @RequestParam(required = false) String group,
+                                 @RequestHeader(CurrentUser.ID_HEADER) String userId) {
+    return filterService.getFilters(screen, FilterGroup.fromKey(group));
+}
