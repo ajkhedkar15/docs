@@ -41,10 +41,10 @@ class AESearchIT {
         ae("TEST-AE-1", "Alpha", true, "{Jane Doe,John Smith}", "Area A", "Div 2");
         ae("TEST-AE-2", "Alpha", true, "{John Smith}", "Area B", "Div 1");
         ae("TEST-AE-9", "Inactive", false, "{Jane Doe}", "Area A", "Div 1");
-        tag("TEST-AE-1", "legalEntity", "Bank UK", true);
-        tag("TEST-AE-2", "legalEntity", "Bank US", true);
-        tag("TEST-AE-3", "legalEntity", "Bank UK", false);     // removed tag: doesn't count
-        tag("TEST-AE-3", "est", "Custody", true);
+        tag("TEST-AE-1", "est", "Custody", true);
+        tag("TEST-AE-2", "est", "Fund Accounting", true);
+        tag("TEST-AE-3", "est", "Custody", false);              // removed tag: doesn't count
+        tag("TEST-AE-3", "est", "Securities Lending", true);
     }
 
     @Test
@@ -68,10 +68,10 @@ class AESearchIT {
 
     @Test
     void attributeFiltersUseActiveTagsOnly() {
-        assertThat(search(Map.of("legalEntity", List.of("Bank UK")))).containsExactly("TEST-AE-1");
-        assertThat(search(Map.of("legalEntity", List.of("Bank UK", "Bank US"), "businessArea", List.of("Area B"))))
+        assertThat(search(Map.of("est", List.of("Custody")))).containsExactly("TEST-AE-1");
+        assertThat(search(Map.of("est", List.of("Custody", "Fund Accounting"), "businessArea", List.of("Area B"))))
                 .containsExactly("TEST-AE-2");
-        assertThat(search(Map.of("est", List.of("Custody")))).containsExactly("TEST-AE-3");
+        assertThat(search(Map.of("est", List.of("Securities Lending")))).containsExactly("TEST-AE-3");
     }
 
     @Test
@@ -97,6 +97,7 @@ class AESearchIT {
     @Test
     void unknownFilterIsBadRequest() {
         assertThatThrownBy(() -> search(Map.of("bogus", List.of("x")))).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> search(Map.of("legalEntity", List.of("x")))).isInstanceOf(BadRequestException.class);
     }
 
     private List<String> search(Map<String, List<String>> filters) {

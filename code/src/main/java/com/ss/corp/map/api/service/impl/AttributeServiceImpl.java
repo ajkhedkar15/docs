@@ -1,37 +1,31 @@
 package com.ss.corp.map.api.service.impl;
 
-import com.ss.corp.map.api.repository.attribute.AttributeRepository;
+import com.ss.corp.map.api.repository.EstMasterRepository;
 import com.ss.corp.map.api.service.AttributeService;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-
+/**
+ * Dropdown values for the attribute types. Each type has its own master table and repository.
+ * Adding a type: its entity + repository, one case here, one line in the screen's option enum.
+ */
 @Slf4j
 @Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AttributeServiceImpl implements AttributeService {
 
-    /** attribute type key (e.g. legalEntity) -> its repository */
-    private final Map<String, AttributeRepository<?>> repositoriesByType;
-
-    /** Spring injects all 11 attribute repositories; adding a type is just a new entity + repository. */
-    public AttributeServiceImpl(List<AttributeRepository<?>> repositories) {
-        this.repositoriesByType = repositories.stream()
-                .collect(Collectors.toMap(AttributeRepository::attributeType, Function.identity()));
-    }
+    private final EstMasterRepository estMasterRepository;
 
     @Override
-    @Transactional(readOnly = true)
     public List<String> findNamesByType(String attributeType) {
-        AttributeRepository<?> repository = repositoriesByType.get(attributeType);
-        if (repository == null) {
-            throw new IllegalStateException("No repository for attribute type " + attributeType);
-        }
         log.debug("Loading options for attribute type {}", attributeType);
-        return repository.findDistinctActiveNames();
+        return switch (attributeType) {
+            case "est" -> estMasterRepository.findDistinctEstNames();
+            default -> throw new IllegalStateException("No master table for attribute type " + attributeType);
+        };
     }
 }
